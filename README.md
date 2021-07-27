@@ -4,4 +4,4 @@ The COVID-19 in Pregnancy in Scotland (COPS) study aims to find out how COVID-19
 
 * Study protocol
 * COPS code - the R code used to generate the COPS cohort
-* Data Dictionary - under development
+* Data Dictionary
