@@ -1,7 +1,37 @@
 #### Read in AAS Terminations ####
-data_aas_terminations_temp_1 <- ### EXTRACT/DATABASE CONNECTION DETAILS
-                                ### REMOVED FOR PUBLIC RELEASE
+data_aas_terminations <-
+  read_csv(
+    paste0(folder_data, "network_folder/COPS_ToP_extracted_07042022.csv"),
+    col_types = cols(
+      UPI_NUMBER = col_character(),
+      DATE_OF_BIRTH = col_datetime(format =
+                                     "%Y-%m-%d"),
+      DATE_OF_TERMINATION = col_datetime(format =
+                                           "%Y-%m-%d"),
+      ESTIMATED_GESTATION = col_number(),
+      STATUTORY_GROUND_A = col_character(),
+      STATUTORY_GROUND_B = col_character(),
+      STATUTORY_GROUND_C = col_character(),
+      STATUTORY_GROUND_D = col_character(),
+      STATUTORY_GROUND_E = col_character(),
+      STATUTORY_GROUND_F = col_character(),
+      STATUTORY_GROUND_G = col_character(),
+      SPECIFIC_INDICATIONS_1 = col_character(),
+      SPECIFIC_INDICATIONS_2 = col_character(),
+      SPECIFIC_INDICATIONS_3 = col_character(),
+      SPECIFIC_INDICATIONS_4 = col_character(),
+      SPECIFIC_INDICATIONS_5 = col_character(),
+      SUSPECTED_CONDITION_IN_FOETUS = col_character(),
+      simd2020v2_sc_quintile = col_number(),
+      hb2019 = col_character(),
+      hb2019name = col_character(),
+      SELECTIVE_REDUCTION = col_number(),
+      ORIGINAL_NUMBER_OF_FOETUSES = col_number(),
+      REDUCED_TO = col_number()
+    )
+  ) %>%
   clean_names() %>%
+  filter(date_of_termination >= cohort_start_date) %>% 
   mutate(pc7 = postcode(pc8)) %>% 
   left_join(hb_lookup, by =  c("hb2019" = "healthboard_code")) %>% 
   mutate(hb2019 = healthboard) %>% 
@@ -44,63 +74,27 @@ data_aas_terminations_temp_1 <- ### EXTRACT/DATABASE CONNECTION DETAILS
                                             aas_statutory_ground_g == "N" ~ 0)) %>%
   mutate(aas_outcome_type = "Termination")
 
-data_aas_terminations_temp_2 <- data_aas_terminations_temp_1 %>%
-  arrange(aas_upi_number, aas_date_of_termination) %>%
-  mutate(cops_event = 1)
+
+#### Assign each termination to a COPS Event, based on the date of termination ####
+data_aas_terminations %<>%
+  arrange(aas_upi_number, aas_date_of_termination)
+
+data_aas_terminations <- 
+  moving_index_deduplication(data_aas_terminations, aas_upi_number, aas_date_of_termination, dedupe_period)
 
 
-# Assign each event to a single pregnancy event. This allows us to group events which seem to be related and which probably should belong to the same pregnancy. It helps us overcome any issues with innacurate conception dates. 
-repeat {
-  data_aas_terminations_temp_2 <- data_aas_terminations_temp_2 %>%
-    group_by(aas_upi_number, cops_event) %>%
-    mutate(index_date = first(aas_date_of_termination)) %>% 
-    mutate(days_since_index_event = difftime(aas_date_of_termination, index_date, units = "days")) %>%
-    mutate(cops_event = case_when(days_since_index_event > dedupe_period ~ cops_event + 1,
-                                  T ~ cops_event)) %>%
-    ungroup()
-  
-  print(Sys.time())
-  print("Max days since index event:")
-  print(max(data_aas_terminations_temp_2$days_since_index_event))
-  
-  if (max(data_aas_terminations_temp_2$days_since_index_event) <= dedupe_period) {
-    data_aas_terminations_temp_2 <- data_aas_terminations_temp_2 %>%
-      select(-c(index_date, days_since_index_event))
-    break # If no records take place more than 83 days after that person's latest index event, then we've successfully allocated every row to its proper COPS event group.
-  }
-  print("Running another loop...")
-}
-
-data_aas_terminations_temp_2 <- data_aas_terminations_temp_2 %>%
+#### Assign each termination to a COPS Event, based on the revised conception date ####
+data_aas_terminations %<>%
   group_by(aas_upi_number, cops_event) %>%
   mutate(revised_conception_date = min(aas_estimated_date_of_conception)) %>%
-  ungroup() %>%
-  arrange(aas_upi_number, revised_conception_date) %>%
-  mutate(cops_event = 1)
+  ungroup()
 
-repeat {
-  data_aas_terminations_temp_2 <- data_aas_terminations_temp_2 %>%
-    group_by(aas_upi_number, cops_event) %>%
-    mutate(index_date = first(revised_conception_date)) %>% # The first observed conception date for a woman becomes our initial index date, and then changes on every iteration to the first conception date which occurs > 83 days after the previous index date.
-    mutate(days_since_index_event = difftime(revised_conception_date, index_date, units = "days")) %>%
-    mutate(cops_event = case_when(days_since_index_event > dedupe_period ~ cops_event + 1,
-                                  T ~ cops_event)) %>%
-    ungroup()
-  
-  print(Sys.time())
-  print("Max days since index event:")
-  print(max(data_aas_terminations_temp_2$days_since_index_event))
-  
-  if (max(data_aas_terminations_temp_2$days_since_index_event) <= dedupe_period) {
-    data_aas_terminations_temp_2 <- data_aas_terminations_temp_2 %>%
-      select(-c(index_date, days_since_index_event))
-    break # If no records take place more than 82 days after that person's latest index event, then we've successfully allocated every row to its proper COPS event group.
-  }
-  print("Running another loop...")
-}
+data_aas_terminations <- 
+  moving_index_deduplication(data_aas_terminations, aas_upi_number, revised_conception_date, dedupe_period)
 
 
-data_aas_terminations_temp_3 <- data_aas_terminations_temp_2 %>%
+#### Set variable values based on each termination's COPS Event counter ####
+data_aas_terminations %<>%
   ungroup() %>%
   group_by(aas_upi_number, cops_event) %>%
   mutate(
@@ -122,7 +116,10 @@ data_aas_terminations_temp_3 <- data_aas_terminations_temp_2 %>%
     aas_simd2020v2_sc_quintile = first_(aas_simd2020v2_sc_quintile)) %>%
   ungroup()
 
-aas_indications <- data_aas_terminations_temp_3 %>%
+n_rows_before_slicing_to_cops_event_level <- nrow(data_aas_terminations)
+
+#### Retain the indications associated with each termination before summarising to one row per event ####
+aas_indications <- data_aas_terminations %>%
   select(aas_upi_number, cops_event, aas_specific_indications_1:aas_specific_indications_5) %>%
   pivot_longer(cols = aas_specific_indications_1:aas_specific_indications_5) %>%
   filter(!is.na(value)) %>%
@@ -133,7 +130,8 @@ aas_indications <- data_aas_terminations_temp_3 %>%
   pivot_wider(names_from = indication,
               values_from = value)
 
-data_aas_terminations <- data_aas_terminations_temp_3 %>%
+#### Cut terminations down to one row per COPS Event ####
+data_aas_terminations %<>%
   select(-c(aas_specific_indications_1:aas_specific_indications_5)) %>%
   select(-c(aas_hb2019name, aas_validity, revised_conception_date)) %>%
   group_by(aas_upi_number, cops_event) %>%
@@ -148,11 +146,11 @@ data_aas_terminations <- data_aas_terminations_temp_3 %>%
   select(-cops_event) %>% 
   rowwise() %>% mutate(event_id = UUIDgenerate()) %>% ungroup()
 
-write_rds(data_aas_terminations, paste0(folder_temp_data, "aas.rds"))
+write_rds(data_aas_terminations, paste0(folder_temp_data, "aas.rds"), compress = "gz")
 
 #record number filtered out
 aas_filters <- data.frame(stage = 1,
-                       den = nrow(data_aas_terminations_temp_3),
+                       den = n_rows_before_slicing_to_cops_event_level,
                        num = nrow(data_aas_terminations),
                        task = "Combine into COPS events") %>% 
   mutate(dataset ="aas")
@@ -161,5 +159,7 @@ write_rds(aas_filters, paste0(folder_temp_data, "aas_filters.rds"))
 #dates
 dataset_dates("AAS", data_aas_terminations$aas_date_of_termination)
 
-rm(aas_filters, aas_indications, data_aas_terminations_temp_1, data_aas_terminations_temp_2, data_aas_terminations_temp_3)
+rm(aas_filters, aas_indications)
 rm(data_aas_terminations)
+rm(n_rows_before_slicing_to_cops_event_level)
+

@@ -1,6 +1,15 @@
 #### Read in NRS Stillbirths ####
-data_nrs_stillbirths_raw <- ### EXTRACT/DATABASE CONNECTION DETAILS
-                            ### REMOVED FOR PUBLIC RELEASE
+data_nrs_stillbirths_raw <- as_tibble(
+  dbGetQuery(
+    SMRAConnection, paste0(
+    "
+    SELECT MOTHER_DERIVED_CHI, MOTHER_UPI_NUMBER, POSTCODE, DATE_OF_BIRTH,
+    DURATION_OF_PREGNANCY, TOTAL_BIRTHS_LIVE_AND_STILL, SEX, WEIGHT_OF_FOETUS, 
+    PRIMARY_CAUSE_OF_DEATH, SECONDARY_CAUSE_OF_DEATH_0, SECONDARY_CAUSE_OF_DEATH_1,
+    SECONDARY_CAUSE_OF_DEATH_2, SECONDARY_CAUSE_OF_DEATH_3 
+    FROM A.GRO_STILLBIRTHS_C
+    WHERE DATE_OF_BIRTH >= TO_DATE('", cohort_start_date, "', 'yyyy-mm-dd')")
+    )) %>% 
   clean_names()
 
 
@@ -69,14 +78,14 @@ data_nrs_stillbirths <- data_nrs_stillbirths_raw %>%
     stillbirth,
     everything()
   ) %>%
-  filter(date_of_birth < Sys.Date()) %>% 
+  filter(date_of_birth < Sys.Date()) %>% # We have a tiny number of stillbirths in the future. We need accurate dates, so remove any stillbirths which happen in the future.
   mutate(sex = case_when(sex == "1" ~ "M", sex == "2" ~ "F", T ~ NA_character_)) %>%
   rename_with( ~ paste0("nrssb_", .)) %>%
   replace_with_na_at(.vars = c("nrssb_sex"),
                      condition = ~.x == "9") %>% 
   rowwise() %>% mutate(event_id = UUIDgenerate()) %>% ungroup()
 
-write_rds(data_nrs_stillbirths, paste0(folder_temp_data, "nrs_stillbirths.rds"))
+write_rds(data_nrs_stillbirths, paste0(folder_temp_data, "nrs_stillbirths.rds"), compress = "gz")
 
 #dates
 dataset_dates("NRS stillbirths", data_nrs_stillbirths$nrssb_date_of_birth)

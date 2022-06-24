@@ -1,8 +1,28 @@
-
-### Read in SMR01 ####
-
-data_smr01_temp_1 <- ### EXTRACT/DATABASE CONNECTION DETAILS
-                     ### REMOVED FOR PUBLIC RELEASE
+#### Read in SMR01 ####
+data_smr01_temp_1 <- as_tibble(
+  dbGetQuery(
+    SMRAConnection, paste0(
+    "
+    SELECT UPI_NUMBER, LINK_NO, CIS_MARKER, ADMISSION_DATE, DISCHARGE_DATE,
+    HBTREAT_CURRENTDATE,
+    SUBSTR(MAIN_CONDITION, 1, 4) AS MAIN_CONDITION,
+    SUBSTR(OTHER_CONDITION_1, 1, 4) AS OTHER_CONDITION_1,
+    SUBSTR(OTHER_CONDITION_2, 1, 4) AS OTHER_CONDITION_2,
+    SUBSTR(OTHER_CONDITION_3, 1, 4) AS OTHER_CONDITION_3,
+    SUBSTR(OTHER_CONDITION_4, 1, 4) AS OTHER_CONDITION_4,
+    SUBSTR(OTHER_CONDITION_5, 1, 4) AS OTHER_CONDITION_5,
+    HBRES_CURRENTDATE, DOB, ETHNIC_GROUP, DR_POSTCODE
+    FROM ANALYSIS.SMR01_PI SMR
+    WHERE SMR.DISCHARGE_DATE >= TO_DATE('", cohort_start_date, "', 'yyyy-mm-dd')
+    AND (SUBSTR(MAIN_CONDITION, 1, 2) = 'O0' 
+    OR SUBSTR(OTHER_CONDITION_1, 1, 2) = 'O0' 
+    OR SUBSTR(OTHER_CONDITION_2, 1, 2) = 'O0' 
+    OR SUBSTR(OTHER_CONDITION_3, 1, 2) = 'O0' 
+    OR SUBSTR(OTHER_CONDITION_4, 1, 2) = 'O0' 
+    OR SUBSTR(OTHER_CONDITION_5, 1, 2) = 'O0' )
+    ORDER BY link_no, admission_date, discharge_date, admission, discharge, uri ASC")
+  )
+  ) %>%
   clean_names() %>%
   group_by(link_no, cis_marker) %>%
   mutate(admission_date = min(admission_date)) %>%
@@ -70,44 +90,11 @@ data_smr01_temp_3 <- data_smr01_temp_2 %>%
     everything()
   ) %>%
   select(-c(miscarriage, molar_pregnancy, ectopic_pregnancy)) %>% 
-  mutate(ethnic_group_mapped9= case_when(ethnic_group =="1A" ~ 1,
-                                         ethnic_group =="1B" ~ 2,
-                                         ethnic_group %in% c("1C","1K","1L","1Z")  ~ 3,
-                                         ethnic_group %in% c("3F","3G","3H") ~ 5,
-                                         ethnic_group =="3J" ~ 6,
-                                         ethnic_group %in% c("5D","5C","5Y","4D","4Y")  ~ 7,
-                                         ethnic_group %in% c("2A","6A","3Z","6Z")  ~ 8,
-                                         T ~ NA_real_
-  )) %>% 
   left_join(hb_lookup, by =  c("hbres_currentdate" = "healthboard_code")) %>% 
   mutate(hbres_currentdate = healthboard) %>% 
   select(-healthboard)
 
-
-data_smr01_temp_4 <- data_smr01_temp_3 %>%
-  mutate(cops_event = 1) # Start off the COPS Event counter - we'll allocate records to events in the repeat{} block which comes next
-
-repeat {
-  # This code groups SMR01 records into COPS Events.
-  data_smr01_temp_4 <- data_smr01_temp_4 %>%
-    group_by(link_no, cops_event) %>%
-    mutate(index_date = first(admission_date)) %>% # The first observed admission date for a woman becomes our initial index date, and then changes on every iteration to the first admission date which occurs >83 days after the previous index date.
-    mutate(days_since_index_event = difftime(admission_date, index_date, units = "days")) %>%
-    mutate(cops_event = case_when(days_since_index_event > dedupe_period ~ cops_event + 1,
-                                  T ~ cops_event)) %>%
-    ungroup()
-  
-  print(Sys.time())
-  print("Max days since index event:")
-  print(max(data_smr01_temp_4$days_since_index_event))
-  
-  if (max(data_smr01_temp_4$days_since_index_event) <= dedupe_period) {
-    data_smr01_temp_4 <- data_smr01_temp_4 %>%
-      select(-c(index_date, days_since_index_event))
-    break # If no records take place more than 83 days after that person's latest index event, then we've successfully allocated every row to its proper COPS event group.
-  }
-  print("Running another loop...")
-}
+data_smr01_temp_4 <- moving_index_deduplication(data_smr01_temp_3, link_no, admission_date, dedupe_period)
 
 data_smr01_temp_5 <- data_smr01_temp_4 %>%
   group_by(link_no, cops_event) %>%
@@ -129,7 +116,6 @@ data_smr01_temp_5 <- data_smr01_temp_4 %>%
   mutate(condition = paste0("conditon", row_number())) %>%
   mutate(
     ethnic_group = first(ethnic_group), # Some patients have multiple ethnic groups, postcodes etc recorded across different records. We need to choose one value and go with it, so choose the first observed value.
-    ethnic_group_mapped9 = first(ethnic_group_mapped9), # Some patients have multiple ethnic groups, postcodes etc recorded across different records. We need to choose one value and go with it, so choose the first observed value.
     dr_postcode = first(dr_postcode),
     hbres_currentdate = first(hbres_currentdate),
     hbtreat_currentdate = first(hbtreat_currentdate)
@@ -193,7 +179,7 @@ filter_2 <- data.frame(stage = 2,
                        task = "Combine episodes into COPS events")
 smr01_filters <- bind_rows(filter_1, filter_2) %>% 
   mutate(dataset ="smr01")
-write_rds(smr01_filters, paste0(folder_temp_data, "smr01_filters.rds"))
+write_rds(smr01_filters, paste0(folder_temp_data, "smr01_filters.rds"), compress = "gz")
 
 #dates
 dataset_dates("SMR01", data_smr01$smr01_cops_discharge_date)

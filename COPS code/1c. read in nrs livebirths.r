@@ -1,6 +1,15 @@
 #### Read in NRS Live Births ####
-data_nrs_live_births_raw <- ### EXTRACT/DATABASE CONNECTION DETAILS
-                            ### REMOVED FOR PUBLIC RELEASE
+tic()
+data_nrs_live_births_raw <- as_tibble(
+  dbGetQuery(
+    SMRAConnection, paste0(
+    "
+    SELECT MOTHER_UPI_NUMBER, CHILD_UPI_NUMBER, 
+    YEAR_OF_REGISTRATION, REGISTRATION_DISTRICT, ENTRY_NUMBER, DATE_OF_BIRTH, SEX, 
+    TOTAL_BIRTHS_LIVE_AND_STILL, POSTCODE
+    FROM A.GRO_BIRTHS_C
+    WHERE DATE_OF_BIRTH >= TO_DATE('", cohort_start_date, "', 'yyyy-mm-dd')")
+  )) %>% 
   distinct() %>%  
   clean_names()
 
@@ -20,29 +29,35 @@ data_nrs_live_births <- data_nrs_live_births_raw %>%
   select(-healthboard) %>% 
   mutate(mother_upi_number = chi_pad(mother_upi_number)) %>% 
   mutate(validity = chi_check(mother_upi_number)) %>% 
-  mutate(mother_upi_number = case_when(validity == "Valid CHI" ~ mother_upi_number,
-                                           T ~ NA_character_)) %>% 
-  mutate(mother_upi_number = case_when(
-    is.na(mother_upi_number) ~ paste0("43", str_pad(
-      string = row_number(),
-      width = 8,
-      side = "left",
-      pad = "0"
-    )),
-    T ~ mother_upi_number
+  mutate(mother_upi_number = if_else(validity == "Valid CHI", mother_upi_number, NA_character_)) %>% 
+  mutate(mother_upi_number = if_else(
+    is.na(mother_upi_number),
+    paste0(
+      "43",
+      str_pad(
+        string = row_number(),
+        width = 8,
+        side = "left",
+        pad = "0"
+      )
+    ),
+    mother_upi_number
   )) %>%
   mutate(child_upi_number = chi_pad(child_upi_number)) %>% 
   mutate(validity = chi_check(child_upi_number)) %>% 
-  mutate(child_upi_number = case_when(validity == "Valid CHI" ~ child_upi_number,
-                                       T ~ NA_character_)) %>%
-  mutate(child_upi_number = case_when(
-    is.na(child_upi_number) ~ paste0("53", str_pad(
-      string = row_number(),
-      width = 8,
-      side = "left",
-      pad = "0"
-    )),
-    T ~ child_upi_number
+  mutate(child_upi_number = if_else(validity == "Valid CHI", child_upi_number, NA_character_)) %>%
+  mutate(child_upi_number = if_else(
+    is.na(child_upi_number),
+    paste0(
+      "53",
+      str_pad(
+        string = row_number(),
+        width = 8,
+        side = "left",
+        pad = "0"
+      )
+    ),
+    child_upi_number
   )) %>%
   mutate(estimated_gestation = assumed_gestation_live_birth) %>%
   mutate(estimated_conception_date = date_of_birth - (weeks(estimated_gestation) - weeks(2) )) %>%
@@ -55,11 +70,12 @@ data_nrs_live_births <- data_nrs_live_births_raw %>%
   rename_with( ~ paste0("nrslb_", .)) %>%
   rowwise() %>% mutate(event_id = UUIDgenerate()) %>% ungroup()
 
-write_rds(data_nrs_live_births, paste0(folder_temp_data, "nrs_live_births.rds"))
+write_rds(data_nrs_live_births, paste0(folder_temp_data, "nrs_live_births.rds"), compress = "gz")
 
 
 #dates
 dataset_dates("NRS live births", data_nrs_live_births$nrslb_date_of_birth)
+toc()
 
-
-rm(data_nrs_live_births_raw, data_nrs_live_births, temp_nrs_live_births)
+rm(data_nrs_live_births_raw, data_nrs_live_births)
+gc()

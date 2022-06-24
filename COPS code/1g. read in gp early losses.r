@@ -1,9 +1,9 @@
 #### Read in new GP Early Losses ####
+TRANSFER = dbConnect(odbc() ### DATABASE CONNECTION DETAILS REMOVED FOR PUBLIC RELEASE
 
-data_gp_losses_temp_raw_1 <- ### EXTRACT/DATABASE CONNECTION DETAILS
-                             ### REMOVED FOR PUBLIC RELEASE
+data_gp_losses_temp_raw_1 <- dbGetQuery(TRANSFER,statement = 'SELECT DISTINCT * FROM COPS_DATA') %>%
     clean_names() %>% 
-    filter(start_date >= as.Date("2019-05-01")) 
+    filter(start_date >= cohort_start_date)
 
 data_gp_losses_temp_raw_2 <- data_gp_losses_temp_raw_1 %>% 
     mutate(chi_number = chi_pad(as.character(chi_number))) %>% 
@@ -15,7 +15,7 @@ data_gp_losses_temp_raw_2 <- data_gp_losses_temp_raw_1 %>%
 #### Keep records in previous file that have disappeared from new one ####
 #Read in previous GP early losses file
 data_gp_losses_old_1 <- readRDS(paste0(folder_temp_data, "gp_losses_raw.rds")) %>% clean_names()%>% 
-  filter(start_date >= as.Date("2019-05-01")) %>% 
+  filter(start_date >= as.Date("2015-01-01")) %>% 
   mutate(chi_number = chi_pad(as.character(chi_number))) %>% 
   mutate(validity = chi_check(chi_number)) %>% 
   filter(validity == "Valid CHI") %>% 
@@ -114,31 +114,8 @@ filter_6 <- data.frame(stage = 6,
                       num = nrow(data_gp_losses_temp_5),
                       task = "Filter out irrelevant codes")
 
-data_gp_losses_temp_6 <- data_gp_losses_temp_5 %>%
-  arrange(chi_number, start_date) %>%
-  mutate(cops_event = 1)
-
-repeat {
-  # This code groups GP records into COPS Events.
-  data_gp_losses_temp_6 <- data_gp_losses_temp_6 %>%
-    group_by(chi_number, cops_event) %>%
-    mutate(index_date = first(start_date)) %>% # The first observed start date for a woman becomes our initial index date, and then changes on every iteration to the first start date which occurs >82 days after the previous index date.
-    mutate(days_since_index_event = difftime(start_date, index_date, units = "days")) %>%
-    mutate(cops_event = case_when(days_since_index_event > dedupe_period ~ cops_event + 1,
-                                  T ~ cops_event)) %>%
-    ungroup()
-  
-  print(Sys.time())
-  print("Max days since index event:")
-  print(max(data_gp_losses_temp_6$days_since_index_event))
-  
-  if (max(data_gp_losses_temp_6$days_since_index_event) <= dedupe_period) {
-    data_gp_losses_temp_6 <- data_gp_losses_temp_6 %>%
-      select(-c(index_date, days_since_index_event))
-    break # If no records take place more than 83 days after that person's latest index event, then we've successfully allocated every row to its proper COPS event group.
-  }
-  print("Running another loop...")
-}
+data_gp_losses_temp_6 <- 
+  moving_index_deduplication(data_gp_losses_temp_5, chi_number, start_date, dedupe_period)
 
 data_gp_losses <- data_gp_losses_temp_6 %>%
   group_by(chi_number, cops_event) %>%
@@ -172,12 +149,12 @@ filter_7 <- data.frame(stage = 7,
                        task = "Combine into COPS events")
 
 
-write_rds(data_gp_losses, paste0(folder_temp_data, "gp_losses.rds"))
+write_rds(data_gp_losses, paste0(folder_temp_data, "gp_losses.rds"), compress = "gz")
 
 #number filtered out
 gp_losses_filters <- bind_rows(filter_1, filter_2, filter_3, filter_4, filter_5, filter_6, filter_7) %>% 
   mutate(dataset ="GP losses")
-write_rds(gp_losses_filters, paste0(folder_temp_data, "gp_losses_filters.rds"))
+write_rds(gp_losses_filters, paste0(folder_temp_data, "gp_losses_filters.rds"), compress = "gz")
 
 #dates
 dataset_dates("GP losses", data_gp_losses$gp_losses_start_date)

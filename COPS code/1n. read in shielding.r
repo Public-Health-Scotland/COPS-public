@@ -1,13 +1,20 @@
 #### Read in Shielding Data ####
-data_shielding <- ### EXTRACT/DATABASE CONNECTION DETAILS
-                  ### REMOVED FOR PUBLIC RELEASE
+data_shielding <-
+  read_csv(
+    paste0(folder_data, "network_folder/all_upis_matched_2022-04-04.csv"),
+    col_types = cols(
+      Removal = col_character()
+    )
+  ) %>%
   clean_names() %>%
   rename_with( ~ paste0("shielding_", .)) %>%
   mutate(shielding_shield = case_when(is.na(shielding_shield) ~ 0,
                                       T ~ shielding_shield)) %>%
   filter(shielding_shield == 1 | shielding_group6 == 1)
   
-write_rds(data_shielding, paste0(folder_temp_data, "shielding.rds"))
+write_rds(data_shielding, paste0(folder_temp_data, "shielding.rds"), compress = "gz")
+
+
 
 # CHI: CHI Number
 # Shield: 1 = shielding; 0 = not shielding

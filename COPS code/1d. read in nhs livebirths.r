@@ -1,13 +1,48 @@
+tic()
 
-#### Read in NHS Live Births ####
-data_nhs_live_births <- ### EXTRACT/DATABASE CONNECTION DETAILS
-                        ### REMOVED FOR PUBLIC RELEASE
+#### Read in historic NHS Live Births ####
+data_nhs_live_births_historic <-
+  read_csv(
+    paste0(folder_data, "network_folder/COPS_NHS_extract_Jan15_Jul19.csv"),
+    col_types = cols(
+      .default = "?",
+      # MothersDoB = col_datetime(format =
+      #                             "%m/%d/%Y %H:%M:%S"),
+      # baby_dob = col_datetime(format =
+      #                           "%m/%d/%Y %H:%M:%S"),
+      GestPeriod = col_integer()
+    )
+  ) 
+
+#### Read in recent NHS Live Births ####
+data_nhs_live_births_recent <-
+  read_csv(
+    paste0(folder_data, "network_folder/COPS_NHS_extract_Apr22_week2.csv"),
+    col_types = cols(
+      .default = "?",
+      # MothersDoB = col_datetime(format =
+      #                             "%m/%d/%Y %H:%M:%S"),
+      # baby_dob = col_datetime(format =
+      #                           "%m/%d/%Y %H:%M:%S"),
+      GestPeriod = col_integer()
+    )
+  ) 
+
+#### Combine old and new NHS Live Birth data ####
+data_nhs_live_births <-
+  bind_rows(data_nhs_live_births_historic,
+            data_nhs_live_births_recent)
+
+
+#### Process NHS Live Birth data for use in COPS ####
+data_nhs_live_births %<>%
   clean_names() %>%
   select(-hb_cypher) %>%
   rename("mothers_dob" = "mothers_do_b") %>%
   rename("baby_chi" = "chi") %>%
+  mutate(mothers_dob = as_date(mdy_hms(mothers_dob))) %>% # Convert character string to datetime, and then convert to date to strip out the time
+  mutate(baby_dob = as_date(mdy_hms(baby_dob))) %>% # Convert character string to datetime, and then convert to date to strip out the time
   distinct() %>%
-  filter(baby_dob >= as.Date("2019-05-01")) %>%
   mutate(mother_chi = chi_pad(mother_chi)) %>% 
   mutate(validity = chi_check(mother_chi)) %>% 
   mutate(mother_chi = case_when(validity == "Valid CHI" ~ mother_chi,
@@ -38,10 +73,14 @@ data_nhs_live_births <- ### EXTRACT/DATABASE CONNECTION DETAILS
   rename_with( ~ paste0("nhslb_", .)) %>%
   rowwise() %>% mutate(event_id = UUIDgenerate()) %>% ungroup()
 
-write_rds(data_nhs_live_births, paste0(folder_temp_data, "nhs_live_births.rds"))
+write_rds(data_nhs_live_births, paste0(folder_temp_data, "nhs_live_births.rds"), compress = "gz")
 
 #dates
 dataset_dates("NHS live births", data_nhs_live_births$nhslb_baby_dob)
 
-rm(data_nhs_live_births)
+rm(data_nhs_live_births,
+   data_nhs_live_births_historic,
+   data_nhs_live_births_recent)
+gc()
 
+toc()
