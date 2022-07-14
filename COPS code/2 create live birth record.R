@@ -1,5 +1,5 @@
 
-start_date <- as.Date("2010-01-01")
+start_date <- as.Date("2010-01-01") # For testing purposes, just set these to silly numbers to ensure we pick up everyone
 end_date <- as.Date("2030-01-01")
 
 data_smr02 <- read_rds(paste0(folder_temp_data, "smr02.rds")) %>% filter(smr02_date_of_delivery >= start_date & smr02_date_of_delivery <= end_date)
@@ -14,16 +14,25 @@ colnames(temp_smr02_births) <-        c("mother_upi", "baby_upi", "event_date", 
 colnames(temp_nhs_live_births) <-     c("mother_upi", "baby_upi", "event_date", "conception_date", "event_id", "data_source")
 colnames(temp_nrs_live_birth) <-      c("mother_upi", "baby_upi", "event_date", "conception_date", "event_id", "data_source")
 
-
 births1 <- temp_nhs_live_births %>%
   bind_rows(temp_smr02_births) %>%
-  bind_rows(temp_nrs_live_birth) %>%
+  bind_rows(temp_nrs_live_birth)
+  
+births1 %>%
+  mutate(validity = chi_check(mother_upi)) %>%
+  tabyl(validity)
+
+
+#### Identify consistent mother UPIs ####
+births1 <- births1 %>%
   group_by(baby_upi) %>%
   mutate(mother_upi = case_when(str_starts(mother_upi, "4") ~ NA_character_,
                                 T ~ mother_upi)) %>%
   mutate(consistent_mother_upi = case_when(n_distinct(mother_upi, na.rm=T) > 1 ~ F,
                                            T ~ T)) %>% 
   ungroup()
+
+
 
 #### Fill in missing mother UPIs where possible
 births_corrected_mother_upis <- births1 %>%
@@ -73,7 +82,7 @@ births5 <- births4 %>%
 
 
 # This block reconciles all of our records into one row per baby as far as possible based on the data we've got, with the UUIDs of their relevant birth records
-# Some babies are in here two or more times because their UPI is not consistently recorded across datasets.
+# Undoubtedly some babies are in here two or more times because their UPI is not consistently recorded across datasets.
 births_grouped <- births5 %>%
   group_by(mother_upi, baby_upi) %>%
   mutate(conception_date = min(conception_date)) %>%
@@ -86,7 +95,7 @@ births_grouped <- births5 %>%
 
 # As noted previously, some of our babies are in here more than once because their UPI may not be recorded consistently across datasets.
 # However, for any pregnancy in SMR02 and NRS Live Births, we know how many babies should have been born. Therefore, we can cut our records down
-# based on this and hope that as time goes on accurate UPIs are filled in and the inconsistencies are resolved.
+# based on this and simply hope that as time goes on accurate UPIs are filled in and the inconsistencies are resolved.
 num_of_births_smr02 <- data_smr02 %>% select(event_id, smr02_num_of_births_this_pregnancy)
 num_of_births_nrslb <- data_nrs_live_births %>% select(event_id, nrslb_total_births_live_and_still)
 num_of_births_nhslb <- data_nhs_live_births %>% select(event_id, nhslb_num_of_births)
@@ -116,9 +125,7 @@ births6 <- births_grouped %>%
   rename(smr02_live_births = smr02) %>%
   rowwise() %>% mutate(baby_id = UUIDgenerate()) %>% ungroup()
 
-
-write_rds(births6, paste0(folder_temp_data, "cops_births.rds"))
-write_rds(filter(births6, !is.na(nhs_live_births)), paste0(folder_temp_data, "cops_births_nhslb_spine.rds"))
+write_rds(births6, paste0(folder_temp_data, "cops_births.rds"), compress = "gz")
 
 rm(data_nhs_live_births, data_nrs_live_births, data_smr02, temp_nhs_live_births, temp_nrs_live_birth, temp_smr02_births,
    births1, births2, births3, births4, births5, births6, births_limited, births_grouped, births_corrected_baby_upis,
