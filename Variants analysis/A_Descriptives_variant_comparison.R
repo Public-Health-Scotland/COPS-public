@@ -176,7 +176,7 @@ sgene_summary <- sgene %>%
                                      (other+ `Positive S Gene` +`True S Gene Dropout`+ `Weak Positive`+ `No Ct Values`) ) ) 
 
                                   
-folder_temp_data              <- "//PHI_conf/COPS/99-temp/"
+
 #set dates for periods
 delta_start <- as.Date("2021-05-17") #>90% S+ (changing from S- alpha )  - actually think it was earlier than this but need to check
 delta_end <- as.Date("2021-12-14")
@@ -860,12 +860,5 @@ data_preterm_denominator <- fetus_level_processed_long %>%
   mutate(flag_preterm = if_else(x_gestation_at_outcome < 37, TRUE, FALSE)) %>%
   mutate(flag_covid_associated_preterm =
            if_else(x_pregnancy_end_date %within% covid_associated_preterm_interval & flag_preterm==TRUE, TRUE, FALSE)) 
-#  mutate(flag_very_preterm = if_else(x_gestation_at_outcome < 32, TRUE, FALSE))# %>% 
- # select(-x_gestation_at_outcome) %>% 
-  #filter(flag_preterm == TRUE) %>% 
- 
-table(data_preterm_denominator$vaccination_status_at_infection, data_preterm_denominator$flag_covid_associated_preterm, 
-      data_preterm_denominator$mother_positive_test_during_pregnancy > as.Date("2021-12-15"))
-
 
 

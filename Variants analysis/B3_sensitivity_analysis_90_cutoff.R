@@ -137,7 +137,6 @@ pregnancies_infections$ethnicity_reporting <- cops_reporting_ethnicity(pregnanci
 #######################################
 #demographics ####
 ########################################
-#that dont change over time
 #gestation  @ infection
 pregnancies_infections <-  pregnancies_infections %>% 
   mutate(trimester = trimester(est_conception_date, mother_positive_test_during_pregnancy_date)) %>%
