@@ -157,15 +157,74 @@ twelve_to_seventeen_yo_covid <- twelve_to_17_yo_tests %>%
   mutate(rate = (total_positive_covid/total_no_children_12_to_17)*100000)
 
 
-# import pregnancy rates for context 
-rate_in_pregnancy <- readRDS(file.path(paste(infection_output_tables_path, "rate_in_pregnancy.rds", sep ="/"))) 
+# add pregnancy rates for context 
+#### Rate in Pregnancy ####
 
-pregnancy_rates <- rate_in_pregnancy %>%
-  select(-c("Feb 2022", "Mar 2022","Apr 2022", "Total Mar 2020 to Apr 2022")) %>%
-  pivot_longer(!indicator) %>%
-  pivot_wider(id_cols = name, names_from = indicator, values_from=value) %>%
-  rename(month = name) %>%
-  adorn_totals()
+pregnancies <- read_rds(paste0(folder_temp_data, "Archive/script6b_pregnancy_level_record.rds")) %>%
+  filter(full_cohort == T) %>%
+  filter(chi_validity == "Valid CHI") %>% # Only include mothers with a valid CHI
+  filter(est_conception_date <= end_date) 
+
+months <- pregnancies %>% 
+  filter(overall_outcome != "Ongoing" & pregnancy_end_date >= as.Date("2020-03-01")) %>% 
+  filter(pregnancy_end_date <= end_date ) %>%  
+  mutate(month = format(as.Date(pregnancy_end_date), "%Y-%m")) %>% 
+  mutate(month_start = floor_date(pregnancy_end_date, unit = "month")) %>% 
+  count(month, month_start) %>% 
+  select(month, month_start)
+
+months_total_pregnant <- months %>% 
+  mutate(number_pregnancies = 0) %>% 
+  select(month, number_pregnancies)
+
+# count number pregnant in each month
+for(i in 1:nrow(months)){
+  number <-  pregnancies %>% 
+    mutate(flag = case_when((pregnancy_end_date >= months$month_start[i] | overall_outcome == "Ongoing") 
+                            & est_conception_date < months$month_start[i] ~ 1,
+                            T ~ NA_real_)) %>% 
+    count(flag) %>% 
+    filter(!is.na(flag))
+  
+  months_total_pregnant[i,]$number_pregnancies <- number[1,]$n
+}
+
+
+# count onset of covid cases in each month
+months_numerators <- pregnancies %>%
+  filter(mother_tested_positive_during_pregnancy == 1) %>%
+  select(mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2) %>%
+  pivot_longer(cols = everything()) %>%
+  select(value) %>%
+  filter(!is.na(value)) %>%
+  mutate(month = format(as.Date(value), "%Y-%m")) %>%
+  select(month) %>%
+  group_by(month) %>%
+  count() %>%
+  rename(covid_infections_during_pregnancy = n)
+
+data_rate_in_pregnancy <- months %>%
+  left_join(months_total_pregnant, by="month") %>%
+  left_join(months_numerators, by="month") %>%
+  mutate(covid_infections_during_pregnancy = case_when(is.na(covid_infections_during_pregnancy) ~ 0, # In some months there were no covid infections, so set these NA values to 0
+                                                       T ~ as.double(covid_infections_during_pregnancy))) %>%
+  mutate("Rate of women with COVID-19 during pregnancy in month" = (covid_infections_during_pregnancy / number_pregnancies) * 100000) %>%
+  select(-month_start) 
+
+total_pregnancies <- pregnancies %>%
+  mutate(study_period_covid_in_preg = if_else(mother_positive_test_during_pregnancy_1 <= end_date, 1, 0)) %>% 
+  group_by(mother_upi) %>%
+  mutate(mother_total_pregnancies = n()) %>%
+  mutate(mother_tested_positive_during_pregnancy = max_(study_period_covid_in_preg)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  summarise(number_pregnancies = n(),
+            covid_infections_during_pregnancy = sum_(study_period_covid_in_preg)) %>%
+  mutate("Rate of women with COVID-19 during pregnancy in month" = (covid_infections_during_pregnancy / number_pregnancies) * 100000) %>%
+  mutate(month = "Total")
+
+pregnancy_rates = data_rate_in_pregnancy %>%
+  bind_rows(total_pregnancies)
 
 ##### maternal demographics #####
 
