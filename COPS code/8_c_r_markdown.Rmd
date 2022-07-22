@@ -1,0 +1,537 @@
+---
+output: 
+  word_document:
+    reference_docx: "PHS-NatStats-RepTemplate.docx"
+    fig_caption: no
+---
+
+<!-- Please see the 'create_report.R' script to compile the whole report with cover page and table of contents -->
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r functions, include = FALSE}
+# This function takes a date as input and transforms it into the format
+# [early|mid|late]-Mmmm yyyy e.g. mid-May 2021 
+publication_date_fmt_early_mid_late <- function(x) {
+  
+  days_of_month_df <- tibble::as_tibble(data.frame(day = seq(1, lubridate::days_in_month(x)))) %>%
+    dplyr::mutate(early_mid_late = cut(day, 3, labels = c("early", "mid", "late"))) %>%
+    dplyr::mutate(date = lubridate::ymd(
+      paste(lubridate::year(x),
+            lubridate::month(x),
+            day, sep = "/")))
+  
+  result <- days_of_month_df %>%
+    dplyr::filter(date == x) %>%
+    dplyr::mutate(result = paste0(
+      early_mid_late, "-",
+      lubridate::month(date, label = TRUE, abbr = FALSE), " ",
+      lubridate::year(date))) %>%
+    .$result
+  
+  return(result)
+}
+
+# This function takes a date as input and returns a character variable in the
+# format dd Mmmm yyyy e.g. 31 May 2021.
+publication_date_fmt <- function(x) {
+  
+  d <- as.character(lubridate::day(x))
+  m <- as.character(lubridate::month(x, label = TRUE, abbr = FALSE))
+  y <- as.character(lubridate::year(x))
+    
+  dmy <- paste(d, m, y)
+  
+  return(dmy)
+}
+
+# This function takes a date as input and returns a character variable in the
+# format Mmmm yyyy e.g. May 2021.
+publication_date_fmt_month_year <- function(x) {
+  
+  m <- as.character(lubridate::month(x, label = TRUE, abbr = FALSE))
+  y <- as.character(lubridate::year(x))
+    
+  my <- paste(m, y)
+  
+  return(my)
+}
+
+# This function takes a date as input and returns a character variable in the
+# format Mmmm e.g. May.
+publication_date_fmt_month <- function(x) {
+  
+  m <- as.character(lubridate::month(x, label = TRUE, abbr = FALSE))
+
+  return(m)
+}
+```
+
+```{r read_data, include = FALSE}
+infection_output_tables_path <- paste0(folder_temp_data, "infection_output_tables")
+neonates_infection_output_tables_path <- paste0(folder_temp_data, "neonate_output_tables")
+
+
+overall_chi_completeness_perc <- readRDS(file.path(paste(folder_temp_data, "overall_testing_chi_completeness_perc.rds", sep ="/")))
+cases_by_week <- readRDS(file.path(paste(infection_output_tables_path, "cases_by_week.rds", sep ="/")))
+rate_in_pregnancy <- readRDS(file.path(paste(infection_output_tables_path, "rate_in_pregnancy.rds", sep ="/")))
+cases_by_gestation <- readRDS(file.path(paste(infection_output_tables_path, "cases_by_gestation.rds", sep ="/")))
+cases_by_vaccination <- readRDS(file.path(paste(infection_output_tables_path, "cases_by_vaccination.rds", sep ="/")))
+total_preg_by_month <- readRDS(file.path(paste(infection_output_tables_path, "total_preg_by_month.rds", sep ="/")))
+all_admissions_by_gestation <- readRDS(file.path(paste(infection_output_tables_path, "all_admissions_by_gestation.rds", sep ="/")))
+
+admissions_by_vaccination <- readRDS(file.path(paste(infection_output_tables_path, "admissions_by_vaccination.rds", sep ="/")))
+icu_by_vaccination <- readRDS(file.path(paste(infection_output_tables_path, "icu_admissions_by_vaccination.rds", sep ="/")))
+
+all_baby_outcomes <- readRDS(file.path(paste(infection_output_tables_path, "infection_severe_outcomes_totals.rds", sep ="/")))
+live_baby_outcomes <- readRDS(file.path(paste(infection_output_tables_path, "all_live_births_after_infection.rds", sep ="/")))
+
+neonates_covid_rates <- readRDS(file.path(paste(neonates_infection_output_tables_path, "neonates_covid_rates.rds", sep ="/")))
+neonates_age_diagnosis <- readRDS(file.path(paste(neonates_infection_output_tables_path, "baby_age_at_diagnosis.rds", sep ="/")))
+neonates_maternal_vaccine_status <- readRDS(file.path(paste(neonates_infection_output_tables_path, "maternal_vaccination_status_long.rds", sep ="/")))
+number_pos_neonates_testing <- readRDS(file.path(paste(folder_temp_data, "number_neonatal_infections_testing_only.rds", sep ="/")))
+
+pregnancies <- readRDS(paste0(folder_temp_data, "script6b_pregnancy_level_record.rds")) %>% filter(full_cohort == T)
+baby_level <- readRDS(paste0(folder_temp_data, "script6_baby_level_record_infection.rds")) %>% filter(x_full_cohort == T) %>%
+    mutate(baby_chi_validity = chi_check(baby_upi))
+
+
+```
+
+```{r obtain_required_numbers, include = FALSE}
+numbers_base <- baby_level %>% 
+  select(pregnancy_id, mother_upi, baby_upi, x_pregnancy_end_date, outcome, chi_validity, baby_chi_validity) %>% 
+  mutate(x_pregnancy_end_date = if_else(is.na(x_pregnancy_end_date), Sys.Date(), x_pregnancy_end_date)) %>% 
+  mutate(outcome = if_else(x_pregnancy_end_date > publication_latest_vacc_date, "Ongoing", outcome)) %>% 
+  filter(chi_validity == "Valid CHI")
+
+n_preg_valid_chi <- numbers_base %>% 
+  group_by(pregnancy_id) %>% 
+  slice(1) %>%
+  nrow()
+
+n_wom_valid_chi <- numbers_base %>% 
+  group_by(mother_upi) %>% 
+  slice(1) %>%
+  nrow()     
+
+n_comp_preg_valid_chi <- numbers_base %>%
+  filter(outcome != "Ongoing") %>% 
+  group_by(pregnancy_id) %>% 
+  slice(1) %>%
+  nrow()     
+
+n_ongoing_preg_valid_chi <- numbers_base %>%
+  filter(outcome == "Ongoing") %>% 
+  group_by(pregnancy_id) %>% 
+  slice(1) %>%
+  nrow()     
+
+n_deliveries_valid_chi <- numbers_base %>%
+  filter((outcome == "Live birth" & baby_chi_validity == "Valid CHI") | outcome == "Stillbirth") %>% 
+  group_by(pregnancy_id) %>% 
+  slice(1) %>%
+  nrow()   
+
+n_live_births_valid_chi <- numbers_base %>%
+  filter(outcome == "Live birth" & baby_chi_validity == "Valid CHI") %>% 
+  group_by(baby_upi) %>% 
+  slice(1) %>%
+  nrow()    
+
+
+# Total COVID-19 infections in pregnant women in Scotland from the start of the pandemic
+num_infections_total <- cases_by_week %>%
+  dplyr::filter(week_end == "Total") %>%
+  .[[1, 2]]
+
+# Total pregnancies in which a woman tested positive in Scotland from the start of the pandemic
+preg_infections_total <- pregnancies  %>%
+  filter(mother_tested_positive_during_pregnancy == 1) %>% 
+  select(pregnancy_id, mother_upi) %>%
+  group_by(pregnancy_id, mother_upi) %>%
+  slice(1) %>%
+  nrow()
+
+# Total women who tested positive during pregnancy
+preg_women_total <- pregnancies  %>%
+  filter(mother_tested_positive_during_pregnancy == 1) %>% 
+  select(pregnancy_id, mother_upi) %>%
+  group_by(mother_upi) %>%
+  slice(1) %>%
+  nrow()
+
+# Cases and percentages by gestation
+first_trimester_num <- round(cases_by_gestation$Total[1], digits = 0)
+first_trimester_perc <- round((first_trimester_num/cases_by_gestation$Total[4]) * 100, digits = 0)
+second_trimester_num <- round(cases_by_gestation$Total[2], digits = 0)
+second_trimester_perc <- round((second_trimester_num/cases_by_gestation$Total[4]) * 100, digits = 0)
+third_trimester_num <- round(cases_by_gestation$Total[3], digits = 0)
+third_trimester_perc <- round((third_trimester_num/cases_by_gestation$Total[4]) * 100, digits = 0)
+
+# Cases and percentages by vaccination status
+total_since_dec <- round(cases_by_vaccination$Total[cases_by_vaccination$vaccination_status_at_infection == "Total"], digits = 0)
+unvaccinated_num <- round(cases_by_vaccination$Total[cases_by_vaccination$vaccination_status_at_infection == "0 - Unvaccinated"], digits = 0)
+unvaccinated_perc <- round((unvaccinated_num/total_since_dec) * 100, digits = 0)
+one_vacc_num <- round(cases_by_vaccination$Total[cases_by_vaccination$vaccination_status_at_infection == "1 - One dose"], digits = 0)
+one_vacc_perc <- round((one_vacc_num/total_since_dec) * 100, digits = 0)
+two_vacc_num <- round(cases_by_vaccination$Total[cases_by_vaccination$vaccination_status_at_infection == "2 - Two doses"], digits = 0)
+two_vacc_perc <- round((two_vacc_num/total_since_dec) * 100, digits = 0)
+three_vacc_num <- round(cases_by_vaccination$Total[cases_by_vaccination$vaccination_status_at_infection == "3 - Three doses"], digits = 0)
+three_vacc_perc <- round((three_vacc_num/total_since_dec) * 100, digits = 0)
+
+# total pregnant in last month we have data for
+total_preg_last_month <- total_preg_by_month %>% 
+  filter(month == max(month)) %>% 
+  .[[1,2]]
+
+# total testing positive in last month we have data for
+
+pos_last_month <- rate_in_pregnancy[[2,(ncol(rate_in_pregnancy)-1)]]
+rate_last_month <- round(rate_in_pregnancy[[3,(ncol(rate_in_pregnancy)-1)]], digits = 0)
+
+
+# total admissions and icu admissions
+
+total_pos_admissions <- all_admissions_by_gestation %>%
+  select(trimester, admission, Total) %>%
+  filter(trimester == "Total") %>%
+  .[[1, 3]]
+
+total_pos_icu <- all_admissions_by_gestation %>%
+  select(trimester, admission, Total) %>%
+  filter(trimester == "Total") %>%
+  .[[2, 3]]
+
+admissions_percentage <- round(total_pos_admissions/num_infections_total * 100, digits = 0)
+icu_percentage <- round(total_pos_icu/num_infections_total * 100, digits = 0)
+
+admissions_since_december_by_vaccination <- admissions_by_vaccination %>%
+  filter(month >= "2020-12") %>% 
+  group_by(vaccination_status_at_infection) %>%
+  summarise(n_covid_adm = sum(n_covid_adm))
+
+total_admissions_since_december <- admissions_since_december_by_vaccination$n_covid_adm[admissions_since_december_by_vaccination$vaccination_status_at_infection == "Total"]
+
+total_admissions_unvaccinated <- admissions_since_december_by_vaccination$n_covid_adm[admissions_since_december_by_vaccination$vaccination_status_at_infection == "0 - Unvaccinated"]
+
+
+admissions_unvaccinated_december_percentage <- round(total_admissions_unvaccinated/total_admissions_since_december * 100, digits = 0)
+
+
+icu_since_december_by_vaccination <- icu_by_vaccination %>%
+  filter(month >= "2020-12") %>% 
+  group_by(vaccination_status_at_infection) %>%
+  summarise(n_covid_adm = sum(n_covid_adm))
+
+total_icu_since_december <- icu_since_december_by_vaccination$n_covid_adm[icu_since_december_by_vaccination$vaccination_status_at_infection == "Total"]
+
+total_icu_unvaccinated <- icu_since_december_by_vaccination$n_covid_adm[icu_since_december_by_vaccination$vaccination_status_at_infection == "0 - Unvaccinated"]
+
+icu_unvaccinated_december_percentage <- round(total_icu_unvaccinated/total_icu_since_december * 100, digits = 0)
+
+
+total_baby_outcomes_post_infection <- all_baby_outcomes %>%
+  full_join(., live_baby_outcomes) %>%
+  select(indicator, Total) 
+
+total_live_babies_post_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "subsequent live birth"]
+total_stillbirths_post_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "subsequent stillbirths"]
+total_neonatal_death_post_maternal_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "subsequent neonatal deaths"]
+
+
+total_births_post_infection <- total_live_babies_post_infection + total_stillbirths_post_infection
+
+perinatal_mortality_post_maternal_infection <- round((((total_stillbirths_post_infection+total_neonatal_death_post_maternal_infection)/total_births_post_infection)*1000), 1)
+
+perinatal_mortality_post_maternal_infection_upper <- round(conf_int_wilson2(total_stillbirths_post_infection+total_neonatal_death_post_maternal_infection, total_births_post_infection, 1.96, type="upper")*1000, 1)
+perinatal_mortality_post_maternal_infection_lower <- round(conf_int_wilson2(total_stillbirths_post_infection+total_neonatal_death_post_maternal_infection, total_births_post_infection, 1.96, type="lower")*1000, 1)
+
+
+total_live_babies_28days_post_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "live birth within 28 days of infection"]
+total_stillbirths_28days_post_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "covid associated stillbirths"]
+total_neonatal_death_28days_post_maternal_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "covid associated neonatal deaths"]
+
+total_births_28days_post_infection <- total_live_babies_28days_post_infection + total_stillbirths_28days_post_infection
+
+perinatal_mortality_28days_post_maternal_infection <- round((((total_stillbirths_28days_post_infection+total_neonatal_death_28days_post_maternal_infection)/total_births_28days_post_infection)*1000), 1)
+
+perinatal_mortality_28days_post_maternal_infection_upper <- round(conf_int_wilson2(total_stillbirths_28days_post_infection+total_neonatal_death_28days_post_maternal_infection, total_births_28days_post_infection, 1.96, type="upper")*1000, 1)
+perinatal_mortality_28days_post_maternal_infection_lower <- round(conf_int_wilson2(total_stillbirths_28days_post_infection+total_neonatal_death_28days_post_maternal_infection, total_births_28days_post_infection, 1.96, type="lower")*1000, 1)
+
+total_preterm_post_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "subsequent preterm births"]
+
+preterm_rate <- round((total_preterm_post_infection/total_live_babies_post_infection)*100, 1)
+
+preterm_rate_upper <- round(conf_int_wilson2(total_preterm_post_infection, total_live_babies_post_infection, 1.96, type="upper")*100, 1)
+preterm_rate_lower <- round(conf_int_wilson2(total_preterm_post_infection, total_live_babies_post_infection, 1.96, type="lower")*100, 1)
+
+total_preterm_28days_post_infection <- total_baby_outcomes_post_infection$Total[total_baby_outcomes_post_infection$indicator == "covid associated preterm births"]
+
+preterm_28days_post_infection_rate <- round((total_preterm_28days_post_infection/total_live_babies_28days_post_infection)*100, 1)
+
+preterm_rate_28days_upper <- round(conf_int_wilson2(total_preterm_28days_post_infection, total_live_babies_28days_post_infection, 1.96, type="upper")*100, 1)
+preterm_rate_28days_lower <- round(conf_int_wilson2(total_preterm_28days_post_infection, total_live_babies_28days_post_infection, 1.96, type="lower")*100, 1)
+
+neonates_tested_covid <- neonates_covid_rates %>%
+  full_join(., neonates_age_diagnosis) %>%
+  select(indicator, starts_with("Total"))
+
+total_neonates_covid_positive <- neonates_tested_covid %>% filter(indicator == "total_positive_covid_neonates") %>% select(starts_with("Total")) %>% as.data.frame()
+total_neonates_covid_positive <-total_neonates_covid_positive[,1]
+
+total_neonates_zero_to_six <- neonates_tested_covid %>% filter(indicator == "zero_to_six_days") %>% select(starts_with("Total")) %>% as.data.frame()
+total_neonates_zero_to_six <- total_neonates_zero_to_six[,1]
+
+total_neonates_seven_to_twentyseven <- neonates_tested_covid %>%  filter(indicator == "seven_to_27_days") %>% select(starts_with("Total")) %>% as.data.frame()
+total_neonates_seven_to_twentyseven <-total_neonates_seven_to_twentyseven[,1]
+
+perc_neonates_zero_to_six <- round((total_neonates_zero_to_six/total_neonates_covid_positive)*100, 0)
+perc_neonates_seven_to_twentyseven <- round((total_neonates_seven_to_twentyseven/total_neonates_covid_positive)*100, 0)
+
+neonates_maternal_vaccine <- neonates_maternal_vaccine_status %>%
+  filter(month >= "2020-12")
+
+total_unvaccinated <- neonates_maternal_vaccine %>%
+  select(month, unvaccinated) %>%
+  ungroup %>%
+  summarise(unvaccinated = sum(unvaccinated)) %>%
+  pull(unvaccinated)
+
+
+total_one_dose <- neonates_maternal_vaccine %>%
+  select(month, one_dose) %>%
+  ungroup %>%
+  summarise(one_dose = sum(one_dose)) %>%
+  pull(one_dose)
+
+total_two_dose <- neonates_maternal_vaccine %>%
+  select(month, two_dose) %>%
+  ungroup %>%
+  summarise(two_dose = sum(two_dose)) %>%
+  pull(two_dose)
+
+total_three_dose <- neonates_maternal_vaccine %>%
+  select(month, three_dose) %>%
+  ungroup %>%
+  summarise(three_dose = sum(three_dose)) %>%
+  pull(three_dose)
+
+
+total_covid_neonates_after_vaccines <- total_unvaccinated + total_one_dose+ total_two_dose + total_three_dose
+perc_neonates_unvaccinated <- round((total_unvaccinated/total_covid_neonates_after_vaccines)*100, 0)
+
+
+```
+
+```{r create_chart, include = FALSE}
+# Create line chart presenting number of COVID-19 vaccines given in pregnancy by
+# dose, Scotland
+
+# Prepare data for chart
+chart_data <- cases_by_week %>%
+  dplyr::filter(week_end != "Total") %>%
+  dplyr::mutate(week_end = lubridate::ymd(week_end)) %>%
+  dplyr::select(week_end,
+                number_of_cases) %>%
+  dplyr::arrange(week_end) %>%
+  dplyr::filter(week_end != max(week_end)) %>%
+  dplyr::mutate(week_end = factor(format(week_end, "%d-%b-%y"),
+                                     levels = format(sort(unique(week_end)), "%d-%b-%y"),
+                                     ordered = TRUE))
+
+
+# Create 'mschart' theme for chart
+chart_theme <- mschart::mschart_theme(
+  axis_title = officer::fp_text(font.size = 12, bold = TRUE),
+  grid_major_line_x = officer::fp_border(width = 0),
+  grid_major_line_y = fp_border(width = 0.5, color = "lightgray"),
+  legend_position = "n",
+  legend_text = officer::fp_text(font.size = 12),
+  axis_text = officer::fp_text(font.size = 10)
+)
+
+# Create chart using 'mschart' package
+chart <- mschart::ms_linechart(data = chart_data,
+                               x = "week_end",
+                               y = "number_of_cases") %>%
+  # Set limits on y-axis
+  mschart::chart_ax_y(num_fmt = "#,##0", limit_min = 0, major_tick_mark = "none") %>%
+  mschart::chart_ax_x(rotation = 270) %>% 
+  # Chart labels
+  mschart::chart_labels(xlab = "Week ending",
+                        ylab = "Number of confirmed cases of COVID-19") %>%
+  # Remove smooth lines
+  mschart::chart_data_smooth(values = 0) %>%
+  # Set series colours
+  mschart::chart_data_stroke(values = "#9B4393") %>%
+  # Set theme
+  mschart::set_theme(value = chart_theme)
+
+# Save the chart out to an rds file for insertion into the Microsoft Word
+# document after this R Markdown has been rendered
+saveRDS(chart, file = file.path(paste0(folder_temp_data, "8_c_chart.rds")))
+
+# Delete the chart object from the environment
+rm(chart)
+```
+
+
+# COVID-19 infection in pregnant women and neonates
+
+
+## Confirmed cases of COVID-19 in pregnant women and neonates
+
+Data and commentary on confirmed cases of COVID-19 in pregnancy have been included in previous versions of this report published on [6 October 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-6-october-2021/), [3 November 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-3-november-2021/), [8 December 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-8-december-2021/), [2 February 2022](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-2-february-2022/) and [9 March 2022](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-9-march-2022/). This report provides updated data on this topic, covering cases of COVID-19 in pregnancy occurring up to the end of <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>.
+
+This report provided information on confirmed cases of COVID-19 in neonates (babies up to 28 days old) for the 
+first time on [2 February 2022](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-2-february-2022/). This report provides updated data on this topic, covering cases of COVID-19 in neonates occurring up to the end of <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>.
+
+This report also includes a separate section on *COVID-19 vaccination in pregnancy*. 
+
+<br>
+
+## How have we identified confirmed cases of COVID-19 in pregnancy for this report?
+
+
+To identify women with confirmed COVID-19 in pregnancy, we have linked national SARS-CoV-2 viral PCR and (for 6 January 2022 onwards) LFD testing data to the COVID-19 in Pregnancy in Scotland (COPS) study pregnancy cohort, which includes a record of all pregnancies in Scotland from 1 March 2020 (the start of the pandemic) onwards.
+
+Detailed information on the data sources and methodology used has been provided in previous versions of this report, and notes are also included in the Excel data tables that accompany this report.  Additional information on the COPS study is available on the study [website](https://www.ed.ac.uk/usher/eave-ii/covid-19-in-pregnancy-in-scotland).
+
+In brief, up to 5 January 2022, confirmed cases of COVID-19 were identified by a positive SARS-CoV-2 viral PCR test result. From 6 January 2022 onwards, confirmed cases have been identified by a positive SARS-CoV-2 viral PCR test result or a positive LFD test result (unless the positive LFD result was followed by a negative viral PCR result within 48 hours). 
+
+This change reflects a change to the [national guidance on testing](https://www.gov.scot/news/self-isolation-and-testing-changes/) and is in line with the approach to reporting of confirmed cases used [across Public Health Scotland](https://publichealthscotland.scot/news/2022/january/further-changes-to-covid-19-reporting/). Up to and including 5 January 2022, anyone with a positive LFD test result was asked to take a follow up PCR test to confirm the result. From 6 January 2022 onwards, asymptomatic individuals with a positive LFD test result were no longer asked to take a follow up PCR test - the positive LFD test result was considered sufficient to indicate confirmed infection for isolation and contact tracing purposes. 
+
+For any individual, the date that their first positive test sample was collected has been taken as the date of onset of their first episode of COVID-19. Subsequent positive tests taken <90 days after a first positive test have been discounted. To allow for the possibility of re-infection, if an individual has a positive test taken ≥90 days after their first positive test, this has been taken as the date of onset of their second episode of COVID-19, with the clock then reset as for the first episode, and so on.
+
+Confirmed cases of COVID-19 have been identified as occurring in pregnancy if the date of onset of the episode of COVID-19 occurred at any point from the date of conception (at 2^+0^ weeks gestation) to the date the pregnancy ended, inclusive. To minimise the chance that we have identified a case of COVID-19 as occurring ‘in pregnancy’ when it actually occurred after a pregnancy has ended, we have discounted any cases with date of onset at 44^+0^ weeks gestation or over. It is very likely that these women have completed their pregnancy, but the end of pregnancy record has not yet been received by PHS.
+
+As identification of confirmed cases of COVID-19 in pregnancy depends on SARS-CoV-2 viral test results, the proportion of all COVID-19 infections that have been detected as a confirmed case will depend on the availability, take up, and accuracy of testing, and (for 6 January 2022 onwards) the proportion of all positive LFD results that are logged on the UK Gov website.
+
+<br>
+
+## How have we identified the hospital and critical care admission status of women with confirmed COVID-19 in pregnancy?
+
+We have linked national hospital discharge records to the pregnancy and viral testing data to identify women who were admitted to hospital around the date of onset of their COVID-19.  Admissions to general acute units (SMR01 records) and maternity units (SMR02 records) have both been included. We have also linked national adult critical care (SICSAG) records to identify women who were admitted to critical care around the date of onset of their COVID-19.  Completed admissions to all intensive care units (ICUs) and general (non-obstetric) high dependency units (HDUs) across Scotland have been included. Completed admissions to the 7 obstetric HDUs that contribute data to SICSAG (collectively covering around 60% of deliveries in Scotland) have also been included.
+
+If a woman has an episode of COVID-19 with an associated (general or critical care) admission, it cannot be assumed that the admission was due to the COVID-19. The woman may have had COVID-19 then a subsequent unrelated admission, for example for delivery of her baby. Alternatively, a woman may be incidentally found to have COVID-19 following routine testing after admission for an unrelated reason.  Routine SARS-CoV-2 testing of all individuals admitted to hospital as a planned or emergency patient was instigated across Scotland from [December 2020](https://www.gov.scot/news/testing-expansion-update/).
+
+<br>
+
+## How have we identified the vaccination status of women with confirmed COVID-19 in pregnancy?
+
+We have linked national vaccination records to the pregnancy and viral testing data to identify the vaccination status of women at the date of onset of their COVID-19. Vaccination status has been defined as:
+
+* Unvaccinated for women with no COVID-19 vaccination prior to the date of onset of COVID-19, or with one dose of vaccination ≤21 days prior to the date of onset
+* Vaccinated (1 dose) for women with one dose of vaccination >21 days prior to the date of onset of COVID-19, or two doses of vaccination with the second dose ≤14 days prior to the date of onset
+
+*	Vaccinated (2 doses) for women with two doses of vaccination with the second dose >14 days prior to the date of onset of COVID-19, or three doses of vaccination with the third dose ≤14 days prior to the date of onset
+* Vaccinated (3 or more doses) for women with three or more doses of vaccination with the third dose >14 days prior to the date of onset of COVID-19
+
+Vaccinations given during or prior to pregnancy are included.  The time lags included in the definitions above reflect the time required after vaccination for the immune response, and hence protection against infection or severe disease, to develop.
+
+<br>
+
+## Number of confirmed cases of COVID-19 in pregnancy
+
+For this publication, we have used the COPS pregnancy cohort as updated in <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> linked to records of SARS-CoV-2 viral testing results for PCR and LFD samples taken on up to and including <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>.
+
+As at <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span>, the COPS cohort included <span custom-style="highlight">`r format(n_preg_valid_chi, big.mark=",")`</span> pregnancies in <span custom-style="highlight">`r format(n_wom_valid_chi, big.mark=",")`</span> women in Scotland from the start of the COVID-19 pandemic on 1 March 2020 onwards. Among these, we have identified a total of <span custom-style="highlight">`r format(num_infections_total, big.mark=",")`</span> confirmed cases of COVID-19 in pregnancy with date of onset from 1 March 2020 up to <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>, in <span custom-style="highlight">`r format(preg_infections_total, big.mark=",")`</span> pregnancies in <span custom-style="highlight">`r format(preg_women_total, big.mark=",")`</span> women.
+
+The COPS pregnancy cohort will be incomplete for recent months, hence these figures are provisional. Updated figures will be published over time, and we expect figures to change.
+
+Detailed data is provided in a supporting Excel file that accompanies this publication, and is also available through the [Scottish Health and Social Care Open data platform](https://www.opendata.nhs.scot/).
+
+The number of confirmed cases of COVID-19 in pregnancy has varied over time, reflecting sequential waves of infection in the general population and also increasing access to testing (and hence increasingly complete ascertainment of cases). Small numbers of confirmed cases of COVID-19 in pregnant women were seen in the first wave of infection in March to May 2020. Subsequent peaks in case numbers have been seen in October 2020 and January, July, and September 2021. A further peak (by far the highest to date) was seen in late December 2022, reflecting the spread of the Omicron viral variant.
+
+
+<div custom-style="TableChart title">Figure x: Weekly number of confirmed cases of COVID-19 in pregnancy, March 2020 to `r publication_date_fmt_month_year(publication_latest_vacc_date)`, Scotland</div>
+<!-- hack to get images to be placed in the right location when the 'Normal' style has been altered --> 
+
+<br>
+
+Of the <span custom-style="highlight">`r format(num_infections_total, big.mark=",")`</span> total confirmed cases of COVID-19 in pregnancy, <span custom-style="highlight">`r format(first_trimester_num, big.mark=",")`</span> (<span custom-style="highlight">`r first_trimester_perc`</span>%) occurred (i.e. had date of onset) in the first trimester of pregnancy (at 2^+0^ to 13^+6^ weeks gestation); <span custom-style="highlight">`r format(second_trimester_num, big.mark=",")`</span> (<span custom-style="highlight">`r second_trimester_perc`</span>%) occurred in the second trimester (at 14^+0^ to 27^+6^ weeks gestation); and <span custom-style="highlight">`r format(third_trimester_num, big.mark=",")`</span> (<span custom-style="highlight">`r third_trimester_perc`</span>%) occurred in the third trimester (at 28^+0^ weeks gestation or over).
+
+Overall, <span custom-style="highlight">`r format(total_pos_admissions, big.mark=",")`</span> (<span custom-style="highlight">`r admissions_percentage`</span>%) of the <span custom-style="highlight">`r format(num_infections_total, big.mark=",")`</span> total cases were associated with a hospital admission, and <span custom-style="highlight">`r format(total_pos_icu, big.mark=",")`</span> (<span custom-style="highlight">`r icu_percentage`</span>%) were associated with a critical care admission. Cases occurring later in pregnancy were much more likely to be associated with a hospital or critical care admission than cases occurring in early pregnancy. This reflects the fact that admission is generally more common in later pregnancy (due to complications of pregnancy unrelated to COVID-19 and/or for delivery), and also that COVID-19 is more likely to cause severe maternal disease and/or pregnancy complications in later pregnancy.
+
+Of the <span custom-style="highlight">`r format(total_since_dec, big.mark=",")`</span> confirmed cases of COVID-19 in pregnancy occurring in December 2020 (the month the COVID-19 vaccination programme started in Scotland) to <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span> inclusive, <span custom-style="highlight">`r format(unvaccinated_num, big.mark=",")`</span> (<span custom-style="highlight">`r unvaccinated_perc`</span>%) have occurred in unvaccinated women, <span custom-style="highlight">`r format(one_vacc_num, big.mark=",")`</span> (<span custom-style="highlight">`r one_vacc_perc`</span>%) in women who have received one dose of vaccination, <span custom-style="highlight">`r format(two_vacc_num, big.mark=",")`</span> (<span custom-style="highlight">`r two_vacc_perc`</span>%) in women who have received two doses, and <span custom-style="highlight">`r format(three_vacc_num, big.mark=",")`</span> (<span custom-style="highlight">`r three_vacc_perc`</span>%) in women who have received three doses or more.
+
+The proportion of confirmed cases of COVID-19 in pregnancy occurring in previously vaccinated individuals has increased over time. This is an inevitable consequence of the vaccination programme being rolled out and an increasing proportion of the population being vaccinated. It is also likely that the current COVID-19 vaccines are less effective at preventing asymptomatic or mild infection with the Omicron viral variant than with previous variants. However, it should be emphasised that the current COVID-19 vaccines remain highly effective at preventing severe COVID-19 disease. 
+
+Cases occurring in unvaccinated women are much more likely to be associated with a hospital or critical care admission than cases occurring in partially or fully vaccinated women. Among the <span custom-style="highlight">`r format(total_icu_since_december, big.mark=",")`</span> confirmed cases of COVID-19 in pregnancy occurring in December 2020 to <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span> inclusive that were associated with a critical care admission, <span custom-style="highlight">`r format(total_icu_unvaccinated, big.mark=",")`</span> (<span custom-style="highlight">`r icu_unvaccinated_december_percentage`</span>%) occurred in unvaccinated women.
+
+<br>
+
+## Rate of confirmed COVID-19 in pregnancy
+
+Based on the <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> refresh of the COPS cohort, <span custom-style="highlight">`r format(total_preg_last_month, big.mark=",")`</span> women in Scotland had an ongoing pregnancy at the start of <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span> and <span custom-style="highlight">`r format(pos_last_month, big.mark=",")`</span> (<span custom-style="highlight">`r format(rate_last_month, big.mark=",")`</span> per 100,000) women had confirmed COVID-19 in pregnancy during <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>.
+
+For the duration of the pandemic to date, the monthly rate of confirmed COVID-19 seen in pregnant women has been very similar to that seen in the general female population of reproductive age (i.e. all women aged 18 to 44 years inclusive) (comparator data available on request).
+
+For the duration of the pandemic to date, the rate of confirmed COVID-19 in pregnancy has generally been higher in younger, compared to older, pregnant women. The rate has also generally been higher in pregnant women living in more, compared to less, deprived areas of Scotland. For the majority of the pandemic to date, there has been no clear pattern in the rate of confirmed COVID-19 in pregnancy in women from different ethnic groups. However, during the most recent peak in infections seen in December 2021 and January 2022, the infection rate has been higher in women with White ethnicity, compared to women from South Asian; Black, Caribbean, or African; and Other or mixed ethnic groups.
+
+<br>
+
+## Babies’ outcomes following maternal confirmed COVID-19 in pregnancy
+
+Based on the <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> refresh of the COPS cohort, a total of <span custom-style="highlight">`r format(total_births_post_infection, big.mark=",")`</span> babies have been born to date following the mother having confirmed COVID-19 at any stage during that pregnancy up to end <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>. <span custom-style="highlight">`r format(total_live_babies_post_infection, big.mark=",")`</span> of the babies were live births (born at any gestation) and <span custom-style="highlight">`r format(total_stillbirths_post_infection, big.mark=",")`</span> were stillbirths (born at 24^+0^ weeks gestation or over). <span custom-style="highlight">`r format(total_neonatal_death_post_maternal_infection, big.mark=",")`</span> of the live born babies subsequently died in the neonatal period (within 28 days of birth). This gives an extended perinatal mortality rate for babies born following maternal confirmed COVID-19 at any stage during pregnancy of <span custom-style="highlight">`r format(perinatal_mortality_post_maternal_infection, big.mark=",")`</span>/1,000 total births ([<span custom-style="highlight">`r format(total_stillbirths_post_infection, big.mark=",")`</span>+<span custom-style="highlight">`r format(total_neonatal_death_post_maternal_infection, big.mark=",")`</span>]/<span custom-style="highlight">`r format(total_births_post_infection, big.mark=",")`</span>, 95% confidence interval [CI] <span custom-style="highlight">`r format(perinatal_mortality_post_maternal_infection_lower, big.mark=",")`</span> to <span custom-style="highlight">`r format(perinatal_mortality_post_maternal_infection_upper, big.mark=",")`</span>/1,000).
+
+<span custom-style="highlight">`r format(total_births_28days_post_infection, big.mark=",")`</span> of the <span custom-style="highlight">`r format(total_births_post_infection, big.mark=",")`</span> babies were born within 28 days of the date of onset of the mother’s COVID-19 infection. <span custom-style="highlight">`r format(total_live_babies_28days_post_infection, big.mark=",")`</span> of these babies were live births (with <span custom-style="highlight">`r format(total_neonatal_death_28days_post_maternal_infection, big.mark=",")`</span> subsequent neonatal deaths) and <span custom-style="highlight">`r format(total_stillbirths_28days_post_infection, big.mark=",")`</span> were stillbirths, giving an extended perinatal mortality rate for babies born within 28 days of confirmed COVID-19 during pregnancy of <span custom-style="highlight">`r format(perinatal_mortality_28days_post_maternal_infection, big.mark=",")`</span>/1,000 total births (95% CI <span custom-style="highlight">`r format(perinatal_mortality_28days_post_maternal_infection_lower, big.mark=",")`</span> to <span custom-style="highlight">`r format(perinatal_mortality_28days_post_maternal_infection_upper, big.mark=",")`</span>/1,000).
+
+It cannot be assumed that stillbirths and neonatal deaths following confirmed COVID-19 during pregnancy are related to the mother’s infection. Stillbirths and neonatal deaths unfortunately occur for a wide range of reasons, and it is important to take the background rate of mortality into account when considering the rates seen among births following infection. For example, the overall extended perinatal mortality rate seen among all births registered in 2020 was 6.3/1,000 total births ([198 stillbirths+100 neonatal deaths]/47,007 total births, 95% CI 5.7 to 7.1/1,000).
+
+<span custom-style="highlight">`r format(total_preterm_post_infection, big.mark=",")`</span> of the <span custom-style="highlight">`r format(total_live_babies_post_infection, big.mark=",")`</span> live births following maternal confirmed COVID-19 at any stage during pregnancy were delivered preterm, i.e. at <37^+0^ weeks gestation, giving a preterm rate in this group of <span custom-style="highlight">`r format(preterm_rate, big.mark=",")`</span>% (95% CI <span custom-style="highlight">`r format(preterm_rate_lower, big.mark=",")`</span> to <span custom-style="highlight">`r format(preterm_rate_upper, big.mark=",")`</span>). <span custom-style="highlight">`r format(total_preterm_28days_post_infection, big.mark=",")`</span> of the <span custom-style="highlight">`r format(total_live_babies_28days_post_infection, big.mark=",")`</span> live births born with 28 days of maternal confirmed COVID-19 during pregnancy were delivered preterm, giving a preterm rate in this group of <span custom-style="highlight">`r format(preterm_28days_post_infection_rate, big.mark=",")`</span>% (95% CI <span custom-style="highlight">`r format(preterm_rate_28days_lower, big.mark=",")`</span> to <span custom-style="highlight">`r format(preterm_rate_28days_upper, big.mark=",")`</span>).).  For comparison, the overall preterm rate seen among live births in financial year 2019/2020 was 8.4% (4,086/48,571 live births, 95% CI 8.2 to 8.7)
+
+Public Health Scotland is conducting detailed analyses on the outcomes of women and babies following COVID-19 in pregnancy through the [COPS study](https://www.ed.ac.uk/usher/eave-ii/covid-19-in-pregnancy-in-scotland). These detailed analyses aim to provide accurate estimates of any excess risks associated with infection. In the meantime, in line with what is known from the [international research evidence](https://www.rcog.org.uk/en/guidelines-research-services/guidelines/coronavirus-pregnancy/), the preliminary data presented above suggests that COVID-19 in pregnancy may be associated with an increased risk of perinatal mortality and preterm birth, in particular among babies born shortly after the onset of maternal infection.
+
+<br>
+
+## How have we identified confirmed cases of COVID-19 in neonates for this report?
+
+The COVID-19 in Pregnancy in Scotland (COPS) study database includes a record of all pregnancies in Scotland from 1 March 2020 (the start of the pandemic) onwards. Records containing the woman’s CHI number (the unique patient identifier used on all health records in Scotland) are included in analyses. 
+
+NHS live birth (LB) notification records are used to identify the subset of these pregnancies that have ended in the birth of one or more live babies. NHS LB notifications are sent from maternity services to NHS Board child health departments on a daily basis.  The child health departments use the notifications to create a record for each baby on the national child health information system.  This then enables babies to receive invitations for child health reviews and routine immunisations. The number of babies with an NHS LB notification record is very close to the total number of live births registered by law with National Records of Scotland. A very small number of babies who die very soon after birth (before that day’s notifications have been sent) will not be notified.
+
+This publication is based on the <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> update of the COPS database and provides information on babies born up to end <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>.  By <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span>, NHS LB notification records for babies born up to end <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span> will be complete, and hence we would expect this month's version of the COPS database to include almost all live births occurring up to end <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>.
+
+All NHS LB notification records include the baby’s CHI number, and this is included in the COPS study database. This means that subsequent health records relating to the baby can then be linked to their (and by extension their mother’s) record within the COPS study database.
+
+To identify confirmed cases of COVID-19 in neonates, we have linked national SARS-CoV-2 viral PCR and (for 6 January 2022 onwards) LFD testing data to records for live births within the COPS study database. As for pregnant women, up to 5 January 2022, confirmed cases of COVID-19 in neonates have been identified by a positive SARS-CoV-2 viral PCR test result. From 6 January 2022 onwards, confirmed cases have been identified by a positive SARS-CoV-2 viral PCR test result or a positive LFD test result (unless the positive LFD result was followed by a negative viral PCR result within 48 hours).
+
+For any baby, the date that their first positive test sample was collected has been taken as the date of onset of their first episode of COVID-19. Confirmed cases in neonates have been identified as those with date of onset within 28 days of birth (i.e. day 0 to day 27 inclusive, with day 0 being the baby’s date of birth). As subsequent positive tests taken <90 days after a first positive test are discounted, each baby can only have one confirmed episode of COVID-19 with onset in the neonatal period.  The proportion of all neonatal COVID-19 infections that have been detected as a confirmed case will depend on the availability, take up, and accuracy of testing, and (for 6 January 2022 onwards) the proportion of all positive LFD results that are logged on the UK Gov website.
+
+<br>
+
+## How have we identified the maternal vaccination status of neonates with confirmed COVID-19?
+
+Maternal COVID-19 vaccination may provide babies with some protection against SARS-CoV-2 infection, as maternal antibodies made following vaccination cross the placenta to the baby (and are therefore present in the baby’s blood after birth), and are also present in breastmilk.  We have used the linked records in the COPS study database to determine the vaccination status of the mothers of neonates with confirmed COVID-19.  Vaccination status has been determined as at the date of delivery (the baby’s date of birth).  The same definitions of vaccination status have been used as shown in the section on *How have we identified the vaccination status of women with confirmed COVID-19 in pregnancy?* above.  Maternal vaccinations given during or prior to pregnancy have been included.
+
+<br>
+
+## Confirmed COVID-19 in neonates
+
+For this publication, we have used the COPS study database as updated in <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> linked to records of SARS-CoV-2 viral testing results for PCR and LFD samples taken on up to and including <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>.
+
+As at <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span>, the COPS database included a total of <span custom-style="highlight">`r format(n_preg_valid_chi, big.mark=",")`</span> pregnancies in <span custom-style="highlight">`r format(n_wom_valid_chi, big.mark=",")`</span> women in Scotland from the start of the COVID-19 pandemic on 1 March 2020 onwards. <span custom-style="highlight">`r format(n_comp_preg_valid_chi, big.mark=",")`</span> of the pregnancies had completed, and <span custom-style="highlight">`r format(n_ongoing_preg_valid_chi, big.mark=",")`</span> were ongoing. <span custom-style="highlight">`r format(n_deliveries_valid_chi, big.mark=",")`</span> of the completed pregnancies had ended in a delivery (delivery of one or more live or stillborn baby/babies), with <span custom-style="highlight">`r format(n_live_births_valid_chi, big.mark=",")`</span> live babies being born.
+
+Among these live births, we have identified a total of <span custom-style="highlight">`r format(total_neonates_covid_positive, big.mark=",")`</span> confirmed cases of COVID-19 in neonates from 1 March 2020 up to <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>.
+
+Using viral PCR and LFD testing data alone (i.e. all test records, not just records that have linked to the COPS study database), shows that there has been an overall total of <span custom-style="highlight">`r format(number_pos_neonates_testing, big.mark=",")`</span> confirmed cases of COVID-19 in neonates between 1 March 2020 and <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>. There are various reasons why confirmed infections identified through testing data only may not be identified through the COPS study database. For example, if the date of birth is incorrect in the testing data, the infection may be incorrectly assigned to the neonatal period, or if the baby's CHI number is not available within the testing data, their record will not be linked to their COPS record. Overall, however, this shows that the number of neonatal infections identified in the COPS database is very close to the number identified through testing data alone.
+
+Detailed data from the COPS study is provided in a supporting Excel file that accompanies this publication, and is also available through the [Scottish Health and Social Care Open data platform](https://www.opendata.nhs.scot/).
+
+The rate of COVID-19 in neonates is much lower than the rate seen among pregnant women, however small peaks have been seen in the neonatal infection rate in line with the sequential waves of infection seen in pregnant women and the general adult population. The highest rate of COVID-19 in neonates seen to date was in January 2022, reflecting the most recent wave of infection associated with the Omicron viral variant.
+
+Among the <span custom-style="highlight">`r format(total_neonates_covid_positive, big.mark=",")`</span> confirmed cases of COVID-19 in neonates, <span custom-style="highlight">`r format(total_neonates_zero_to_six, big.mark=",")`</span> (<span custom-style="highlight">`r format(perc_neonates_zero_to_six, big.mark=",")`</span>%) had date of onset during the early neonatal period (day 0 to day 6 inclusive, with day 0 being the baby’s date of birth) and <span custom-style="highlight">`r format(total_neonates_seven_to_twentyseven, big.mark=",")`</span> (<span custom-style="highlight">`r format(perc_neonates_seven_to_twentyseven, big.mark=",")`</span>%) had date of onset during the late neonatal period (day 7 to day 27 inclusive). It is not possible to definitively infer how a baby acquired their SARS-CoV-2 infection from this.  However, the fact that most infections had date of onset in the late neonatal period is in line with other evidence that suggests that most neonatal infections are acquired after birth, rather than before or at birth.
+
+Among the <span custom-style="highlight">`r format(total_covid_neonates_after_vaccines, big.mark=",")`</span> confirmed cases of COVID-19 in neonates that occurred between December 2020 (the month the vaccination programme started in Scotland) and <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>, <span custom-style="highlight">`r format(total_unvaccinated, big.mark=",")`</span> (<span custom-style="highlight">`r format(perc_neonates_unvaccinated, big.mark=",")`</span>%) of the babies were born to a mother who was unvaccinated at the time of delivery.
+
+## Data on COVID-19 infection in pregnant women and neonates from other UK nations
+
+No data on confirmed cases of COVID-19 in pregnant women or neonates is routinely published for England, Wales, or Northern Ireland.
+
+From the start of the pandemic, the UK Obstetric Surveillance System ([UKOSS](https://www.npeu.ox.ac.uk/ukoss/current-surveillance/covid-19-in-pregnancy)) has been collecting data from hospitals across the UK on pregnant women with COVID-19 who are admitted to hospital. Information is not routinely published by UKOSS, however a number of [research papers](https://www.npeu.ox.ac.uk/ukoss/publications-ukoss/results) based on the collected data are publicly available.
+
+Similarly, the British Paediatric Surveillance Unit ([BPSU](https://www.rcpch.ac.uk/work-we-do/bpsu/study-neonatal-complications-coronavirus-disease-covid-19)) has been collecting data on neonates with confirmed COVID-19 who are being cared for in hospital, and research papers based on the collected data (for example see [here](https://www.sciencedirect.com/science/article/pii/S2352464220303424)) are publicly available.
