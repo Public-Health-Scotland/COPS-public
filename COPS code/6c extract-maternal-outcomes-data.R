@@ -202,7 +202,7 @@ sicsag_latest <- sort(dir(sicsag_dir)[str_starts(dir(sicsag_dir), "episode")], d
 
 message("using SICSAG extract created on ", file.info(paste0(sicsag_dir, sicsag_latest))$ctime)
 
-df_ep <- read_sav(paste0(sicsag_dir, sicsag_latest)) %>% 
+df_ep <- read_rds(paste0(sicsag_dir, sicsag_latest)) %>% 
   clean_names()
 
 ## SICSAG RECODES ####
