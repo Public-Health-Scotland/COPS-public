@@ -1,0 +1,637 @@
+---
+output: 
+  word_document:
+    reference_docx: "PHS-NatStats-RepTemplate.docx"
+    fig_caption: no
+---
+
+<!-- Please see the 'create_report.R' script to compile the whole report with cover page and table of contents -->
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r functions, include = FALSE}
+# This function takes a date as input and transforms it into the format
+# [early|mid|late]-Mmmm yyyy e.g. mid-May 2021 
+publication_date_fmt_early_mid_late <- function(x) {
+  
+  days_of_month_df <- tibble::as_tibble(data.frame(day = seq(1, lubridate::days_in_month(x)))) %>%
+    dplyr::mutate(early_mid_late = cut(day, 3, labels = c("early", "mid", "late"))) %>%
+    dplyr::mutate(date = lubridate::ymd(
+      paste(lubridate::year(x),
+            lubridate::month(x),
+            day, sep = "/")))
+  
+  result <- days_of_month_df %>%
+    dplyr::filter(date == x) %>%
+    dplyr::mutate(result = paste0(
+      early_mid_late, "-",
+      lubridate::month(date, label = TRUE, abbr = FALSE), " ",
+      lubridate::year(date))) %>%
+    .$result
+  
+  return(result)
+}
+
+# This function takes a date as input and returns a character variable in the
+# format dd Mmmm yyyy e.g. 31 May 2021.
+publication_date_fmt <- function(x) {
+  
+  d <- as.character(lubridate::day(x))
+  m <- as.character(lubridate::month(x, label = TRUE, abbr = FALSE))
+  y <- as.character(lubridate::year(x))
+    
+  dmy <- paste(d, m, y)
+  
+  return(dmy)
+}
+
+# This function takes a date as input and returns a character variable in the
+# format Mmmm yyyy e.g. May 2021.
+publication_date_fmt_month_year <- function(x) {
+  
+  m <- as.character(lubridate::month(x, label = TRUE, abbr = FALSE))
+  y <- as.character(lubridate::year(x))
+    
+  my <- paste(m, y)
+  
+  return(my)
+}
+
+# This function takes a date as input and returns a character variable in the
+# format Mmmm e.g. May.
+publication_date_fmt_month <- function(x) {
+  
+  m <- as.character(lubridate::month(x, label = TRUE, abbr = FALSE))
+
+  return(m)
+}
+```
+
+```{r read_data, include = FALSE}
+vaccine_output_tables_path <- paste0(folder_temp_data, "network_folder")
+overall_vacc_chi_completeness_perc <- readRDS(file.path(paste(folder_temp_data, "overall_vacc_chi_completeness_perc.rds", sep ="/")))
+
+table_1_n_by_week <- readRDS(file.path(paste(vaccine_output_tables_path, "table_1_n_by_week.rds", sep ="/")))
+table_2_n_by_gestation <- readRDS(file.path(paste(vaccine_output_tables_path, "table_2_n_by_gestation.rds", sep ="/")))
+table_3_n_by_type <- readRDS(file.path(paste(vaccine_output_tables_path, "table_3_n_by_type.rds", sep ="/")))
+table_4_overall_uptake <- readRDS(file.path(paste(vaccine_output_tables_path, "table_4_overall_uptake.rds", sep ="/")))
+table_8_total_coverage <- readRDS(file.path(paste(vaccine_output_tables_path, "table_8_total_coverage.rds", sep ="/")))
+table_9_total_coverage_by_age <- readRDS(file.path(paste(vaccine_output_tables_path, "table_9_coverage_by_age.rds", sep ="/")))
+vaccinated_pregnancies <- readRDS(paste0(folder_temp_data, "network_folder/vaccinated_pregnancies.rds"))
+population_coverage <- readRDS(paste0(folder_temp_data, "network_folder/population_coverage.rds"))
+vaccine_severe_outcomes <- readRDS(paste0(folder_temp_data, "network_folder/vaccine_severe_outcomes_totals.rds"))
+vaccine_live_births <- readRDS(paste0(folder_temp_data, "network_folder/all_live_births_after_vaccination.rds"))
+
+fetus_level <- readRDS(paste0(folder_temp_data, "script6_baby_level_record.rds")) %>% filter(x_full_cohort == T)
+```
+
+```{r obtain_required_numbers, include = FALSE}
+# Number of pregnancies
+n_pregnancies <- fetus_level %>% 
+  select(pregnancy_id, mother_upi) %>%
+  group_by(pregnancy_id) %>%
+  slice(1) %>%
+  nrow()
+# Number of women
+n_mother <- fetus_level %>% 
+  select(pregnancy_id, mother_upi) %>%
+  group_by(mother_upi) %>%
+  slice(1) %>%
+  nrow()
+
+temp_preg_valid_chi <- fetus_level %>%
+  select(pregnancy_id, chi_validity) %>%
+  group_by(pregnancy_id) %>%
+  slice(1) %>%
+  tabyl(chi_validity) 
+#Number pregnancies with valid CHI
+n_preg_valid_chi <-  temp_preg_valid_chi[2,2]
+#Percent pregnancies with valid CHI
+perc_preg_valid_chi <-  format(round(temp_preg_valid_chi[2,3] * 100, digits = 1))
+
+temp_wom_valid_chi <- fetus_level %>%
+  select(mother_upi, chi_validity) %>%
+  group_by(mother_upi) %>%
+  slice(1) %>%
+  tabyl(chi_validity) 
+#Number women with valid CHI
+n_wom_valid_chi <-  temp_wom_valid_chi[2,2]
+#Percent women with valid CHI
+perc_wom_valid_chi <-  format(round(temp_wom_valid_chi[2,3] * 100, digits = 1))
+
+# Number of pregnancies Dec 2020 onwards
+n_pregnancies_dec_onwards <- fetus_level %>% 
+  filter(chi_validity =="Valid CHI") %>% 
+  filter(outcome =="Ongoing" | x_pregnancy_end_date >= vacc_start_date) %>% 
+  select(pregnancy_id, mother_upi) %>%
+  group_by(pregnancy_id) %>%
+  slice(1) %>%
+  nrow()
+# Number of women Dec 2020 onwards
+n_mother_dec_onwards <- fetus_level %>% 
+  filter(chi_validity =="Valid CHI") %>% 
+  filter(outcome =="Ongoing" | x_pregnancy_end_date >= vacc_start_date) %>% 
+  select(pregnancy_id, mother_upi) %>%
+  group_by(mother_upi) %>%
+  slice(1) %>%
+  nrow()
+
+# Total COVID-19 vaccinations given to pregnant women in Scotland from the start
+# of the COVID-19 vaccination programme on 8 December 2020
+vacc_total <- table_1_n_by_week %>%
+  dplyr::filter(week_ending == "Total") %>%
+  dplyr::select(`dose_99`) %>%
+  .[[1, 1]]
+
+# Total pregnancies receiving a COVID-19 vaccinations
+preg_vacc_total <- vaccinated_pregnancies %>%
+  select(Total) %>%
+  .[[1, 1]]
+
+# Total number of women in Scotland pregnant from the start of the COVID-19
+# vaccination programme on 8 December 2020 to the end of the most recent month
+# for which data are available given a COVID-19 vaccination
+preg_vacc_women_n <- table_4_overall_uptake %>%
+  dplyr::filter(stringr::str_detect(month_vaccine_words, "Total")) %>%
+  dplyr::select(number_vaccinated) %>%
+  .[[1, 1]]
+
+# Total COVID-19 vaccination first doses given to pregnant women in Scotland
+# from the start of the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_1_n <- table_1_n_by_week %>%
+  dplyr::filter(week_ending == "Total") %>%
+  dplyr::select(`dose_1`) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_1_pct <- preg_vacc_1_n / vacc_total
+
+# Total COVID-19 vaccination second doses given to pregnant women in Scotland
+# from the start of the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_2_n <- table_1_n_by_week %>%
+  dplyr::filter(week_ending == "Total") %>%
+  dplyr::select(`dose_2`) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_2_pct <- preg_vacc_2_n / vacc_total
+
+# Total COVID-19 vaccination third doses given to pregnant women in Scotland
+# from the start of the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_3_n <- table_1_n_by_week %>%
+  dplyr::filter(week_ending == "Total") %>%
+  dplyr::select(`dose_3`) %>% 
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_3_pct <- preg_vacc_3_n / vacc_total
+
+# Total COVID-19 vaccination fourth doses given to pregnant women in Scotland
+# from the start of the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_4_n <- table_1_n_by_week %>%
+  dplyr::filter(week_ending == "Total") %>%
+  dplyr::select(`dose_4`) %>%
+  .[[1, 1]]
+
+preg_vacc_4_pct <- preg_vacc_4_n / vacc_total
+
+
+# Total COVID-19 vaccinations given in the first trimester of pregnancy (at 2+0
+# to 13+6 weeks gestation) to pregnant women in Scotland from the start of the
+# COVID-19 vaccination programme on 8 December 2020
+preg_vacc_trim_1_n <- table_2_n_by_gestation %>%
+  dplyr::filter(stringr::str_detect(Stage_of_Preg, "first") &
+                  vacc_dose_number == "Total") %>%
+  dplyr::select(Total) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_trim_1_pct <- preg_vacc_trim_1_n / vacc_total
+
+# Total COVID-19 vaccinations given in the second trimester of pregnancy (at
+# 14+0 to 27+6 weeks gestation) to pregnant women in Scotland from the start of
+# the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_trim_2_n <- table_2_n_by_gestation %>%
+  dplyr::filter(stringr::str_detect(Stage_of_Preg, "second") &
+                  vacc_dose_number == "Total") %>%
+  dplyr::select(Total) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_trim_2_pct <- preg_vacc_trim_2_n / vacc_total
+
+# Total COVID-19 vaccinations given in the third trimester of pregnancy (at 28+0
+# weeks gestation) to pregnant women in Scotland from the start of the COVID-19
+# vaccination programme on 8 December 2020
+preg_vacc_trim_3_n <- table_2_n_by_gestation %>%
+  dplyr::filter(stringr::str_detect(Stage_of_Preg, "third") &
+                  vacc_dose_number == "Total") %>%
+  dplyr::select(Total) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_trim_3_pct <- preg_vacc_trim_3_n / vacc_total
+
+# Total Pfizer/BioNTech vaccinations given to pregnant women in Scotland from
+# the start of the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_pfizer_n <- table_3_n_by_type %>%
+  dplyr::filter(stringr::str_detect(vacc_product_name, "Pfizer") &
+                  vacc_dose_number == "Total") %>%
+  dplyr::select(Total) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_pfizer_pct <- preg_vacc_pfizer_n / vacc_total
+
+# Total Moderna vaccinations given to pregnant women in Scotland from
+# the start of the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_moderna_n <- table_3_n_by_type %>%
+  dplyr::filter(stringr::str_detect(vacc_product_name, "Moderna") &
+                  vacc_dose_number == "Total") %>%
+  dplyr::select(Total) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_moderna_pct <- preg_vacc_moderna_n / vacc_total
+
+# Total Oxford/AstraZeneca vaccinations given to pregnant women in Scotland from
+# the start of the COVID-19 vaccination programme on 8 December 2020
+preg_vacc_az_n <- table_3_n_by_type %>%
+  dplyr::filter(stringr::str_detect(vacc_product_name, "AstraZeneca") &
+                  vacc_dose_number == "Total") %>%
+  dplyr::select(Total) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_az_pct <- preg_vacc_az_n / vacc_total
+
+# Total COVID-19 vaccinations given to pregnant women in Scotland during
+# December 2020
+preg_vacc_dec20_n <- table_4_overall_uptake %>%
+  dplyr::filter(month_vacc == paste("2020", "12", sep = "-")) %>%
+  dplyr::select(number_vaccinated) %>%
+  .[[1, 1]]
+
+# Total number of women in Scotland pregnant at the start of December 2020
+preg_women_start_dec20_n <- table_4_overall_uptake %>%
+  dplyr::filter(month_start == lubridate::ymd("2020-12-01")) %>%
+  dplyr::select(number_pregnancies) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_dec20_pct <- preg_vacc_dec20_n / preg_women_start_dec20_n
+
+# Total number of women in Scotland pregnant at the start of the most recent
+# month for which data are available
+preg_women_start_latest_n <- table_4_overall_uptake %>%
+  dplyr::filter(month_start == lubridate::ymd(paste(lubridate::year(publication_latest_vacc_date),
+                                                    lubridate::month(publication_latest_vacc_date),
+                                                    "01", sep = "-"))) %>%
+  dplyr::select(number_pregnancies) %>%
+  .[[1, 1]]
+
+# Total COVID-19 vaccinations given to pregnant women in Scotland during
+# the most recent month for which data are available
+preg_vacc_latest_n <- table_4_overall_uptake %>%
+  dplyr::filter(month_vacc == format(publication_latest_vacc_date, "%Y-%m")) %>%
+  dplyr::select(number_vaccinated) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total
+preg_vacc_latest_pct <- preg_vacc_latest_n / preg_women_start_latest_n
+
+# Total number of deliveries in December 2020
+deliveries_dec20_n <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == paste("2020", "12", sep = "-")) %>%
+  dplyr::select(deliveries) %>%
+  .[[1, 1]]
+
+# Total number of deliveries during the most recent month for wich data are
+# available
+deliveries_latest_n <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == format(publication_latest_vacc_date, "%Y-%m")) %>%
+  dplyr::select(deliveries) %>%
+  .[[1, 1]]
+
+# Number of women who delivered during the most recent month for wich data are
+# available who had received a COVID-19 vaccination prior to delivery
+deliveries_vacc_1_latest_n <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == format(publication_latest_vacc_date, "%Y-%m")) %>%
+  dplyr::select(onevacc) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total number of deliveries during the most
+# recent month for wich data are available
+deliveries_vacc_1_latest_pct <- deliveries_vacc_1_latest_n / deliveries_latest_n
+
+# Number of women who delivered during the most recent month for wich data are
+# available who had received a second dose of COVID-19 vaccination prior to
+# delivery
+deliveries_vacc_2_latest_n <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == format(publication_latest_vacc_date, "%Y-%m")) %>%
+  dplyr::select(twovacc) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total number of deliveries during the most
+# recent month for wich data are available
+deliveries_vacc_2_latest_pct <- deliveries_vacc_2_latest_n / deliveries_latest_n
+
+# Number of women who delivered during the most recent month for wich data are
+# available who had received a third dose of COVID-19 vaccination prior to
+# delivery
+deliveries_vacc_3_latest_n <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == format(publication_latest_vacc_date, "%Y-%m")) %>%
+  dplyr::select(threevacc) %>%
+  .[[1, 1]]
+
+# ... and as a percentage of the total number of deliveries during the most
+# recent month for wich data are available
+deliveries_vacc_3_latest_pct <- deliveries_vacc_3_latest_n / deliveries_latest_n
+
+# coverage for most recent period, 35-39 year olds
+coverage_35_39 <- table_9_total_coverage_by_age %>% 
+  filter(month_delivered == (max_(month_delivered))) %>% 
+  filter(maternal_age_group == "5 35-39")
+
+n_deliveries_35_39 <- coverage_35_39$deliveries[[1]]
+n_1_dose_35_39 <- coverage_35_39$onevacc[[1]]
+perc_1_dose_35_39 <- format((coverage_35_39$onevacc_percent[[1]] * 100), digits = 0)
+n_2_dose_35_39 <- coverage_35_39$twovacc[[1]]
+perc_2_dose_35_39 <- format((coverage_35_39$twovacc_percent[[1]] * 100), digits = 0)
+
+## population one dose coverage 
+one_dose_population <- population_coverage %>% 
+  filter(vacc_dose_number == "dose_1") %>% 
+  select(percent_coverage) %>% 
+  .[[1,1]]
+
+two_dose_population <- population_coverage  %>% 
+  filter(vacc_dose_number == "dose_2") %>% 
+  select(percent_coverage) %>% 
+  .[[1,1]]
+
+three_dose_population <- population_coverage  %>% 
+  filter(vacc_dose_number == "dose_3") %>% 
+  select(percent_coverage) %>% 
+  .[[1,1]]
+
+four_dose_population <- population_coverage  %>% 
+  filter(vacc_dose_number == "dose_4") %>% 
+  select(percent_coverage) %>% 
+  .[[1,1]]
+
+# Number of women who delivered during september
+# available who had received any dose of COVID-19 vaccination prior to
+# delivery
+last_month_coverage_num <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == "2021-09") %>%
+  dplyr::select(onevacc) %>%
+  .[[1, 1]]
+
+last_month_coverage_deliveries <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == "2021-09") %>%
+  dplyr::select(deliveries) %>%
+  .[[1, 1]]
+
+last_month_coverage_pct <- last_month_coverage_num / last_month_coverage_deliveries
+
+# Number of women who delivered during august
+# available who had received any dose of COVID-19 vaccination prior to
+# delivery
+month_before_coverage_num <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == "2021-08") %>%
+  dplyr::select(onevacc) %>%
+  .[[1, 1]]
+
+month_before_coverage_deliveries <- table_8_total_coverage %>%
+  dplyr::filter(month_delivered == "2021-08") %>%
+  dplyr::select(deliveries) %>%
+  .[[1, 1]]
+
+month_before_coverage_pct <- month_before_coverage_num / month_before_coverage_deliveries
+
+vaccine_baby_outcomes <- vaccine_severe_outcomes %>%
+  full_join(vaccine_live_births) %>%
+  select(indicator, Total) 
+
+vaccine_total_live_births <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "subsequent live birth"]
+vaccine_total_stillbirth <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "pregnancies with subsequent stillbirths"]
+vaccine_total_birth <- vaccine_total_live_births + vaccine_total_stillbirth
+
+vaccine_total_neonatal_death <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "subsequent neonatal death"]
+
+vaccine_perinatal_mortality <- round(((vaccine_total_stillbirth+vaccine_total_neonatal_death)/vaccine_total_birth)*1000, 1)
+
+vaccine_perinatal_mortality_upper <- round(conf_int_wilson2(vaccine_total_stillbirth+vaccine_total_neonatal_death, vaccine_total_birth, 1.96, type="upper")*1000, 1)
+vaccine_perinatal_mortality_lower <- round(conf_int_wilson2(vaccine_total_stillbirth+vaccine_total_neonatal_death, vaccine_total_birth, 1.96, type="lower")*1000, 1)
+
+vaccine_total_live_births_28days <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "live birth within 28 days of vaccine"]
+vaccine_total_stillbirth_28days <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "associated stillbirths"]
+vaccine_total_birth_28days <- vaccine_total_live_births_28days + vaccine_total_stillbirth_28days
+
+vaccine_total_neonatal_death_28days <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "associated neonatal death"]
+
+vaccine_perinatal_mortality_28days <- round(((vaccine_total_stillbirth_28days+vaccine_total_neonatal_death_28days)/vaccine_total_birth_28days)*1000, 1)
+
+vaccine_perinatal_mortality_28days_upper <- round(conf_int_wilson2(vaccine_total_stillbirth_28days+vaccine_total_neonatal_death_28days, vaccine_total_birth_28days, 1.96, type="upper")*1000, 1)
+vaccine_perinatal_mortality_28days_lower <- round(conf_int_wilson2(vaccine_total_stillbirth_28days+vaccine_total_neonatal_death_28days, vaccine_total_birth_28days, 1.96, type="lower")*1000, 1)
+
+vaccine_preterm <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "subsequent preterm births"]
+
+vaccine_preterm_rate <- round((vaccine_preterm/vaccine_total_live_births)*100, 1)
+
+vaccine_preterm_rate_upper <- round(conf_int_wilson2(vaccine_preterm, vaccine_total_live_births, 1.96, type="upper")*100, 1)
+vaccine_preterm_rate_lower <- round(conf_int_wilson2(vaccine_preterm, vaccine_total_live_births, 1.96, type="lower")*100, 1)
+
+
+vaccine_preterm_28days <- vaccine_baby_outcomes$Total[vaccine_baby_outcomes$indicator == "associated preterm births"]
+
+vaccine_preterm_rate_28days <- round((vaccine_preterm_28days/vaccine_total_birth_28days)*100, 1)
+
+vaccine_preterm_rate_upper_28days <- round(conf_int_wilson2(vaccine_preterm_28days, vaccine_total_birth_28days, 1.96, type="upper")*100, 1)
+vaccine_preterm_rate_lower_28days <- round(conf_int_wilson2(vaccine_preterm_28days, vaccine_total_birth_28days, 1.96, type="lower")*100, 1)
+
+
+```
+
+```{r create_chart, include = FALSE}
+# Create line chart presenting number of COVID-19 vaccines given in pregnancy by
+# dose, Scotland
+
+# Prepare data for chart
+chart_data <- table_1_n_by_week %>%
+  dplyr::filter(week_ending != "Total") %>%
+  dplyr::mutate(week_ending = lubridate::ymd(week_ending), 
+                dose_3_and_4 = dose_3 + dose_4) %>%
+  dplyr::rename(`First dose` = `dose_1`,
+                `Second dose` = `dose_2`,
+                `Third and subsequent dose` = `dose_3_and_4`) %>%
+  dplyr::select(week_ending,
+                `First dose`,
+                `Second dose`,
+                `Third and subsequent dose`) %>%
+  tidyr::pivot_longer(!week_ending,
+                      names_to = "dose",
+                      values_to = "number_of_vaccines") %>%
+  dplyr::arrange(week_ending, dose) %>%
+  dplyr::filter(week_ending != max(week_ending)) %>%
+  dplyr::mutate(week_ending = factor(format(week_ending, "%d-%b-%y"),
+                                     levels = format(sort(unique(week_ending)), "%d-%b-%y"),
+                                     ordered = TRUE))
+
+
+# Create 'mschart' theme for chart
+chart_theme <- mschart::mschart_theme(
+  axis_title = officer::fp_text(font.size = 12, bold = TRUE),
+  grid_major_line_x = officer::fp_border(width = 0),
+  grid_major_line_y = fp_border(width = 0.5, color = "lightgray"),
+  legend_position = "b",
+  legend_text = officer::fp_text(font.size = 12),
+  axis_text = officer::fp_text(font.size = 10)
+)
+
+# Create chart using 'mschart' package
+chart <- mschart::ms_linechart(data = chart_data,
+                               x = "week_ending",
+                               y = "number_of_vaccines",
+                               group = "dose") %>%
+  # Set limits on y-axis
+  mschart::chart_ax_y(num_fmt = "#,##0", limit_min = 0, major_tick_mark = "none") %>%
+  mschart::chart_ax_x(rotation = 270) %>% 
+  # Chart labels
+  mschart::chart_labels(xlab = "Week ending",
+                        ylab = "Number of vaccines") %>%
+  # Remove smooth lines
+  mschart::chart_data_smooth(values = c("First dose" = 0,
+                                        "Second dose" = 0,
+                                        "Third and subsequent dose" = 0)) %>%
+  # Set series colours
+  mschart::chart_data_stroke(values = c("First dose" = "#9B4393",
+                                        "Second dose" = "#0078D4",
+                                        "Third and subsequent dose" = "#83BB26")) %>%
+  # Set theme
+  mschart::set_theme(value = chart_theme)
+
+# Save the chart out to an rds file for insertion into the Microsoft Word
+# document after this R Markdown has been rendered
+saveRDS(chart, file = file.path(paste0(folder_temp_data, "8_b_chart.rds")))
+
+# Delete the chart object from the environment
+rm(chart)
+```
+
+# COVID-19 vaccination in pregnancy  
+
+Data and commentary on COVID-19 vaccination in pregnancy have been included in previous versions of this report published on [14 July 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-14-july-2021/), [1 September 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-1-september-2021/), [6 October 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-6-october-2021/), [3 November 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-3-november-2021/), [8 December 2021](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-8-december-2021/), [2 February 2022](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-2-february-2022/) and [9 March 2022](https://publichealthscotland.scot/publications/covid-19-statistical-report/covid-19-statistical-report-9-march-2022/). This report provides updated data on this topic, covering vaccinations given in pregnancy up to the end of <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>.  
+
+This report also includes a separate section on *Confirmed cases of COVID-19 in pregnant women and neonates*.
+  
+<br>
+
+## Advice for women on COVID-19 vaccination in pregnancy
+  
+COVID-19 vaccination is the safest and most effective way for women to protect themselves and their babies against severe COVID-19. The Royal College of Obstetricians and Gynaecologists (RCOG) and the Royal College of Midwives [recommend](https://www.gov.uk/government/news/health-chiefs-encourage-more-pregnant-women-to-get-their-covid-19-vaccine) that pregnant women receive their COVID-19 vaccination. Information for patients on COVID-19 vaccination in pregnancy is available on [NHS inform](https://www.nhsinform.scot/covid-19-vaccine/the-vaccines/pregnancy-breastfeeding-and-the-coronavirus-vaccine) and from the [RCOG](https://www.rcog.org.uk/globalassets/documents/guidelines/2021-02-24-combined-info-sheet-and-decision-aid.pdf).  
+
+
+<br>
+
+## Policy on COVID-19 vaccination in pregnancy
+
+The Joint Committee on Vaccination and Immunisation ([JCVI](https://www.gov.uk/government/groups/joint-committee-on-vaccination-and-immunisation)) advises the UK and devolved governments on immunisation.  Advice from the JCVI on COVID-19 vaccination for pregnant women has changed over time, as evidence has accumulated on both the risks of COVID-19 disease in pregnancy, and the safety and effectiveness of COVID-19 vaccinations in pregnancy.
+
+Details have been provided in previous version of this report.  In summary, when the vaccination programme started in Scotland on 8 December 2020, the JCVI did not recommend COVID-19 vaccination in pregnancy, due to the lack of evidence on safety and effectiveness at that time.  On [30 December 2020](https://www.gov.uk/government/publications/priority-groups-for-coronavirus-covid-19-vaccination-advice-from-the-jcvi-30-december-2020), the JCVI updated their guidance to note that women in the highest risk groups that were being called for vaccination at that point, and who happened to be pregnant, could be offered vaccination during pregnancy.  In practice this mainly affected pregnant health and social care workers at high risk of occupational exposure to infection, and pregnant women with underlying health conditions conferring clinical vulnerability to severe COVID-19 disease.  On [16 April 2021](https://www.gov.uk/government/news/jcvi-issues-new-advice-on-covid-19-vaccination-for-pregnant-women), the JCVI issued further guidance, confirming that all women called for vaccination due to being in any priority group (including the ‘phase 2’ groups covering all adults aged 18-49 years) should be offered vaccination, regardless of pregnancy status.  In other words, from this time, pregnant women were offered vaccination at the same time as non-pregnant women, based on their age and clinical risk group.
+
+More recently, on [16 December 2021](https://www.gov.uk/government/news/pregnant-women-urged-to-come-forward-for-covid-19-vaccination), the JCVI added pregnant women to the list of groups considered clinically vulnerable to COVID-19 disease, and hence prioritised for vaccination (priority group 6). In response to this, the [Chief Medical Officer](https://www.sehd.scot.nhs.uk/cmo/CMO(2021)39.pdf) for Scotland asked NHS Boards to consider ways to further increase provision of vaccination for pregnant women, for example by establishing dedicated antenatal vaccination clinics.
+
+Up to date recommendations from the JCVI on COVID-19 vaccination are available in Immunisation against Infectious Disease (the [‘Green Book’](https://www.gov.uk/government/publications/covid-19-the-green-book-chapter-14a)), published by the UK Department of Health and Social Care.
+  
+## How have we identified COVID-19 vaccinations given to pregnant women for this report?
+
+To identify women vaccinated against COVID-19 in pregnancy, we have linked national vaccination data to the COVID-19 in Pregnancy in Scotland (COPS) study pregnancy cohort, which includes a record of all pregnancies in Scotland from 1 March 2020 (the start of the pandemic) onwards.  
+
+Detailed information on the data sources and methodology used has been provided in previous versions of this report, and notes are also included in the Excel data tables that accompany this report.  Additional information on the COPS study is available on the study [website](https://www.ed.ac.uk/usher/eave-ii/covid-19-in-pregnancy-in-scotland).  
+
+In brief, COVID-19 vaccinations have been identified as occurring in pregnancy if they were given at any point from the date of conception (at 2^+0^ weeks gestation) to the date the pregnancy ends, inclusive. To minimise the chance that we have identified a vaccination as occurring ‘in pregnancy’ when it actually occurred after a pregnancy has ended, we have discounted any vaccinations that were showing as delivered at 44^+0^ weeks gestation or over. It is very likely that these women have completed their pregnancy, but the end of pregnancy record has not yet been received by PHS.
+  
+<br>
+  
+## Number of COVID-19 vaccinations given to pregnant women
+
+For this publication, we have used the COPS database as updated in <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> linked to records of vaccinations delivered on up to and including <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>.  
+
+As at <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span>, the COPS database included a total of <span custom-style="highlight">`r format(n_preg_valid_chi, big.mark=",")`</span> pregnancies among <span custom-style="highlight">`r format(n_wom_valid_chi, big.mark=",")`</span> women in Scotland from 1 March 2020 (the start of the pandemic) onwards, and <span custom-style="highlight">`r format(n_pregnancies_dec_onwards, big.mark=",")`</span> pregnancies in <span custom-style="highlight">`r format(n_mother_dec_onwards, big.mark=",")`</span> women from 1 December 2020 (the month the COVID-19 vaccination programme started) onwards. Among these, we have identified a total of <span custom-style="highlight">`r format(vacc_total, big.mark = ",")`</span> COVID-19 vaccinations given in <span custom-style="highlight">`r format(preg_vacc_total, big.mark = ",")`</span> pregnancies to <span custom-style="highlight">`r format(preg_vacc_women_n, big.mark = ",")`</span> women from the start of the COVID-19 vaccination programme on 8 December 2020 up to <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>.  
+
+The COPS pregnancy cohort will be incomplete for recent months, hence these figures are provisional. Updated figures will be published over time, and we expect figures to change.  
+
+Detailed data is provided in a supporting Excel file that accompanies this publication, and is also available through the [Scottish Health and Social Care Open data platform](https://www.opendata.nhs.scot/dataset/covid-19-vaccinations-in-pregnancy-in-scotland).  
+
+Of the <span custom-style="highlight">`r format(vacc_total, big.mark = ",")`</span> total vaccinations given in pregnancy, <span custom-style="highlight">`r format(preg_vacc_1_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent(accuracy = 0.1)(preg_vacc_1_pct)`</span>) were first doses, <span custom-style="highlight">`r format(preg_vacc_2_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent(accuracy = 0.1)(preg_vacc_2_pct)`</span>) were second doses and <span custom-style="highlight">`r format(preg_vacc_3_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent(accuracy = 0.1)(preg_vacc_3_pct)`</span>) were third doses, and <span custom-style="highlight">`r format(preg_vacc_4_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent(accuracy = 0.1)(preg_vacc_4_pct)`</span>) were fourth doses.  
+
+Small peaks in the number of first dose vaccinations given in pregnancy were seen in January and March 2021, likely representing vaccination of health and care workers, and clinically vulnerable women, respectively. A more substantial peak in first dose vaccinations was then seen in early June 2021, reflecting the time when vaccination was being offered to the general young adult population. As would be expected given the recommended gap between first and second doses of vaccination, a substantial peak in second dose vaccinations was then seen in early August 2021. Small numbers of first and second dose vaccinations have continued to be given to pregnant women up to the end of <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>, reflecting the fact that vaccination [remains available](https://www.nhsinform.scot/covid-19-vaccine/invitations-and-appointments/vaccine-open-access-services/) to anyone who was not vaccinated when initially invited for whatever reason.  
+
+Third primary doses of vaccination have been offered to immunosuppressed individuals from September 2021. Booster doses have also been offered from September 2021.  Booster doses were offered 6 months following the end of the primary immunisation course to individuals in the initial vaccination priority groups 1-9 (health and care workers, clinically extremely vulnerable and clinically vulnerable individuals, and all adults aged 50 years or over) from [September 2021](https://www.gov.uk/government/publications/jcvi-statement-september-2021-covid-19-booster-vaccine-programme-for-winter-2021-to-2022), then to all adults aged 40-49 years from [15 November 2021](https://www.gov.uk/government/publications/covid-19-booster-vaccine-programme-for-winter-2021-to-2022-jcvi-statement-november-2021). In response to the emergence of the Omicron variant, the offer of a booster dose was extended to all adults aged 18-39 from [29 November 2021](https://www.gov.uk/government/news/jcvi-advice-on-covid-19-booster-vaccines-for-those-aged-18-to-39-and-a-second-dose-for-ages-12-to-15) and to young people aged 16-17 from [22 December 2011](https://www.gov.uk/government/publications/jcvi-update-on-advice-for-covid-19-vaccination-of-children-and-young-people), with boosters for all groups (including previously eligible groups) available from 3 rather than 6 months following the end of the primary immunisation course from this time. On [21 February 2022](https://www.gov.uk/government/publications/joint-committee-on-vaccination-and-immunisation-statement-on-covid-19-vaccinations-in-2022/joint-committee-on-vaccination-and-immunisation-jcvi-statement-on-covid-19-vaccinations-in-2022-21-february-2022), the JCVI recommended that second boosters should be provided to immunosuppressed individuals (and older adults) from 6 months after their initial booster, but any such second boosters given to immunosuppressed pregnant women will not be included in the timeframe covered by this report.
+
+As would be expected from the above, a small number of third doses of vaccination were given in pregnancy in September, October, and November 2021, with a substantial peak in third dose vaccinations then seen in December 2021.
+
+
+<div custom-style="TableChart title">Figure x: Number of COVID-19 vaccines given in pregnancy by dose, December 2020 to `r publication_date_fmt_month_year(publication_latest_vacc_date)`, Scotland</div>
+<!-- hack to get images to be placed in the right location when the 'Normal' style has been altered --> 
+
+<br>
+
+
+Of the <span custom-style="highlight">`r format(vacc_total, big.mark = ",")`</span> total vaccinations given in pregnancy, <span custom-style="highlight">`r format(preg_vacc_trim_1_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(preg_vacc_trim_1_pct)`</span>) vaccinations were given in the first trimester of pregnancy (at 2^+0^ to 13^+6^ weeks gestation); <span custom-style="highlight">`r format(preg_vacc_trim_2_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(preg_vacc_trim_2_pct)`</span>) were given in the second trimester (at 14^+0^ to 27^+6^ weeks gestation); and <span custom-style="highlight">`r format(preg_vacc_trim_3_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(preg_vacc_trim_3_pct)`</span>) were given in the third trimester (at 28^+0^ weeks gestation or over).  <span custom-style="highlight">`r format(preg_vacc_pfizer_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(preg_vacc_pfizer_pct)`</span>) of the vaccinations given were Pfizer/BioNTech; <span custom-style="highlight">`r format(preg_vacc_moderna_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(preg_vacc_moderna_pct)`</span>) were Moderna; and <span custom-style="highlight">`r format(preg_vacc_az_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(preg_vacc_az_pct)`</span>) were Oxford/AstraZeneca.
+
+<br>
+
+## Uptake of COVID-19 vaccination among pregnant women
+
+Based on the <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> refresh of the COPS database, <span custom-style="highlight">`r format(preg_women_start_latest_n, big.mark = ",")`</span> women in Scotland had an ongoing pregnancy at the start of <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>, and <span custom-style="highlight">`r format(preg_vacc_latest_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(preg_vacc_latest_pct)`</span>) women received any COVID-19 vaccination during pregnancy in <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span> (‘monthly uptake of vaccination’).  
+
+For the duration of the pandemic to date, the monthly uptake of vaccination has generally been higher in older, compared to younger, pregnant women. Monthly uptake has generally been higher in pregnant women living in less, compared to more, deprived areas of Scotland. Monthly uptake has also generally been lower among pregnant women with Black, Caribbean, or African ethnicity compared to pregnant women with White; South Asian; or Other or mixed ethnicity.
+
+From the start of the vaccination programme in December 2020 until August 2021, the monthly uptake of vaccination among pregnant women was considerably lower than that seen in the general female population of reproductive age (i.e. all women aged 18 to 44 years inclusive) (comparator data available on request). From September 2021 to <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>, monthly uptake in pregnant women and in the general female population have been more similar, although uptake among pregnant women remains consistently below that in the general female population.
+
+<br>
+
+## Coverage of COVID-19 vaccination by the time of delivery
+  
+<span custom-style="highlight">`r format(deliveries_latest_n, big.mark = ",")`</span> women delivered their baby (or babies in the case of a multiple pregnancy) in <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>. <span custom-style="highlight">`r format(deliveries_vacc_1_latest_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(deliveries_vacc_1_latest_pct)`</span>) of the women delivering in <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span> had received at least one dose of COVID-19 vaccination prior to delivery, with <span custom-style="highlight">`r format(deliveries_vacc_2_latest_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(deliveries_vacc_2_latest_pct)`</span>) of the women having received at least two doses, <span custom-style="highlight">`r format(deliveries_vacc_3_latest_n, big.mark = ",")`</span> (<span custom-style="highlight">`r scales::label_percent()(deliveries_vacc_3_latest_pct)`</span>) having received three doses.
+  
+As would be expected, the percentage of women delivering their baby in each month who have received at least one dose of vaccination before the date of delivery (‘coverage of vaccination by delivery’) has increased over time.  
+  
+To date, the coverage of vaccination by delivery has been higher in women from older, compared to younger, age groups. Coverage of vaccination by delivery has been higher in women living in the least, compared to the most, deprived areas of Scotland. Coverage of vaccination by delivery has also been lower in women with Black, Caribbean, or African ethnicity compared to women with White; South Asian; or Other or mixed ethnicity, also the gap narrowed somewhat for women delivering in <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>.
+
+To date, vaccination coverage has been considerably lower among women delivering their babies than among the general female population of reproductive age. By the end of <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>, <span custom-style="highlight">`r scales::label_percent()(one_dose_population)`</span> of all women aged 18 to 44 years inclusive had received at least one dose of vaccination, with <span custom-style="highlight">`r scales::label_percent()(two_dose_population)`</span> having received at least two doses, and <span custom-style="highlight">`r scales::label_percent()(three_dose_population)`</span> having received three doses (comparator data available on request). Coverage of any vaccination in the general female population increased rapidly up to July 2021, and subsequently increased very slowly from August 2021 onwards.  By contrast, coverage among women delivering their babies has continued to increase steadily up to end <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>, hence the gap in coverage between pregnant women and all women of reproductive age is reducing over time.
+
+<br>
+
+## Babies’ outcomes following maternal COVID-19 vaccination in pregnancy  
+
+Based on the <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publication_cops_db_update_date)`</span> refresh of the COPS cohort, a total of <span custom-style="highlight">`r format(vaccine_total_birth, big.mark = ",")`</span> babies have been born to date following the mother receiving COVID-19 vaccination at any stage during that pregnancy up to end <span custom-style="highlight">`r publication_date_fmt_month_year(publication_latest_vacc_date)`</span>. <span custom-style="highlight">`r format(vaccine_total_live_births, big.mark = ",")`</span> of the babies were live births (born at any gestation) and <span custom-style="highlight">`r format(vaccine_total_stillbirth, big.mark = ",")`</span> were stillbirths (born at 24^+0^ weeks gestation or over). <span custom-style="highlight">`r format(vaccine_total_neonatal_death, big.mark = ",")`</span> of the live born babies subsequently died in the neonatal period (within 28 days of birth). This gives an extended perinatal mortality rate for babies born following maternal COVID-19 vaccination at any stage during pregnancy of <span custom-style="highlight">`r format(vaccine_perinatal_mortality, big.mark = ",")`</span>/1,000 total births ([<span custom-style="highlight">`r format(vaccine_total_stillbirth, big.mark = ",")`</span>+<span custom-style="highlight">`r format(vaccine_total_neonatal_death, big.mark = ",")`</span>]/<span custom-style="highlight">`r format(vaccine_total_live_births, big.mark = ",")`</span>, 95% confidence interval [CI] <span custom-style="highlight">`r format(vaccine_perinatal_mortality_lower, big.mark = ",")`</span> to <span custom-style="highlight">`r format(vaccine_perinatal_mortality_upper, big.mark = ",")`</span>/1,000).  
+
+<span custom-style="highlight">`r format(vaccine_total_birth_28days, big.mark = ",")`</span> of the <span custom-style="highlight">`r format(vaccine_total_birth, big.mark = ",")`</span> babies were born within 28 days of the date of the mother’s COVID-19 vaccination. <span custom-style="highlight">`r format(vaccine_total_live_births_28days, big.mark = ",")`</span> of these babies were live births (with <span custom-style="highlight">`r format(vaccine_total_neonatal_death_28days, big.mark = ",")`</span> subsequent neonatal deaths) and <span custom-style="highlight">`r format(vaccine_total_stillbirth_28days, big.mark = ",")`</span> were stillbirths, giving an extended perinatal mortality rate for babies born within 28 days of COVID-19 vaccination during pregnancy of <span custom-style="highlight">`r format(vaccine_perinatal_mortality_28days, big.mark = ",")`</span>/1,000 total births (95% CI <span custom-style="highlight">`r format(vaccine_perinatal_mortality_28days_lower, big.mark = ",")`</span> to <span custom-style="highlight">`r format(vaccine_perinatal_mortality_28days_upper, big.mark = ",")`</span>).  
+
+It cannot be assumed that stillbirths and neonatal deaths following COVID-19 vaccination during pregnancy are related to the mother’s vaccination. Stillbirths and neonatal deaths unfortunately occur for a wide range of reasons, and it is important to take the background rate of mortality into account when considering the rates seen among births following vaccination. For example, the overall extended perinatal mortality rate seen among births registered in 2020 was 6.3/1,000 total births ([198 stillbirths+100 neonatal deaths]/47,007 total births, 95% CI 5.7 to 7.1/1,000).
+
+<span custom-style="highlight">`r format(vaccine_preterm, big.mark = ",")`</span> of the <span custom-style="highlight">`r format(vaccine_total_live_births, big.mark = ",")`</span> live births following maternal COVID-19 vaccination at any stage during pregnancy were delivered preterm, i.e. at <37^+0^ weeks gestation, giving a preterm rate in this group of <span custom-style="highlight">`r format(vaccine_preterm_rate, big.mark = ",")`</span>% (95% CI <span custom-style="highlight">`r format(vaccine_preterm_rate_lower, big.mark = ",")`</span> to <span custom-style="highlight">`r format(vaccine_preterm_rate_upper, big.mark = ",")`</span>). <span custom-style="highlight">`r format(vaccine_preterm_28days, big.mark = ",")`</span> of the <span custom-style="highlight">`r format(vaccine_total_live_births_28days, big.mark = ",")`</span> live births born with 28 days of maternal COVID-19 vaccination during pregnancy were delivered preterm, giving a preterm rate in this group of <span custom-style="highlight">`r format(vaccine_preterm_rate_28days, big.mark = ",")`</span>% (95% CI <span custom-style="highlight">`r format(vaccine_preterm_rate_lower_28days, big.mark = ",")`</span> to <span custom-style="highlight">`r format(vaccine_preterm_rate_upper_28days, big.mark = ",")`</span>).  For comparison, the overall preterm rate seen among live births in financial year 2019/2020 was 8.4% (4,086/48,571 live births, 95% CI 8.2 to 8.7).
+
+Public Health Scotland is conducting detailed analyses on the safety of COVID-19 vaccination in pregnancy through the [COPS study](https://www.ed.ac.uk/usher/eave-ii/covid-19-in-pregnancy-in-scotland). In the meantime, in line with what is known from the [international research evidence](https://www.rcog.org.uk/en/guidelines-research-services/guidelines/coronavirus-pregnancy/), the preliminary data presented above shows no increased risk of perinatal mortality or preterm birth following COVID-19 vaccination in pregnancy. This finding contrasts to the relatively high rates of perinatal mortality and preterm birth seen among babies born soon after COVID-19 infection in pregnancy (see separate section in this report on *Confirmed cases of COVID-19 in pregnant women and neonates*). Vaccination remains the safest and most effective way for women to protect themselves and their babies against COVID-19 infection.
+<br>
+
+## Data on COVID-19 vaccination in pregnancy from other UK nations 
+
+Data published by the UK Health Security Agency shows that among women in England delivering their baby in November 2021, 49% (20,713/42,681) had received at least one dose of COVID-19 vaccination prior to delivery (see the [COVID-19 vaccine weekly surveillance report](https://www.gov.uk/government/publications/covid-19-vaccine-weekly-surveillance-reports)). The UKHSA report also provides information on birth outcomes (preterm delivery, low birthweight, and stillbirth) among vaccinated and unvaccinated women.
+
+Data published by Public Health Wales shows that among women in Wales delivering their baby in December 2021, 58% (1,218/2,112) had received at least one dose of COVID-19 vaccination prior to delivery. (See the latest [Monthly enhanced surveillance report](https://www2.nphs.wales.nhs.uk/CommunitySurveillanceDocs.nsf/3dc04669c9e1eaa880257062003b246b/e61c928e715ece3180258680003449c3/$FILE/Wales%20COVID-19%20vaccination%20enhanced%20surveillance%20-%20equality%20report.pdf) available through the Vaccination tab on the [Public Health Wales Rapid COVID-19 surveillance dashboard](https://public.tableau.com/app/profile/public.health.wales.health.protection/viz/RapidCOVID-19virology-Public/Vaccination)).
+
+These data for England and Wales are based on linkage of national maternity and vaccination records.  
+
+For comparison, this report shows that 49% (1,935/3,971) and 56% (2,135/3,829) of women who delivered in Scotland in November and December 2021 respectively had received at least one dose of COVID-19 vaccination prior to delivery.  
+
+No data on COVID-19 vaccination in pregnancy is currently available for Northern Ireland.  
+
+
+
