@@ -23,9 +23,7 @@ vaccination_status <- function(dose_1_date, dose_2_date, dose_3_date, reference_
   
   two_dose_date <- dose_2_date + days(14)
   
-  three_dose_date <- dose_3_date + days(14)
-  
-  #four_dose_date <- dose_4_date + days(14)
+  three_dose_date <- dose_3_date + days(14) # grouping 3/subsequent as one group as vv few 4s at this time
   
   case_when(reference_date < one_dose_date | is.na(dose_1_date) ~ "0 - Unvaccinated",
             reference_date >= one_dose_date & 
@@ -58,8 +56,8 @@ delta_end <- as.Date("2021-12-14")
 omicron_start <- as.Date("2021-12-15") #date of >90% S-
 infections_cutoff <- as.Date("2022-01-31") #end of infection period included in analyses.
 
-##setup####
-####Data prep - long format - each infection (in pregnancy) as a line
+####Data prep####
+# long format - 1 infection per row
 # prep vacc status and time to end of pregnancy, from infection date.
 fetuslevel <- read_rds(paste0(folder_temp_data, "script6_baby_level_record_infection.rds")) 
 
@@ -75,11 +73,10 @@ fetus_infections <- fetuslevel %>% filter(tests_mother_positive_test_during_preg
   mutate(variant_period = case_when(mother_positive_test_during_pregnancy_date >=omicron_start & mother_positive_test_during_pregnancy_date < infections_cutoff ~ "Omicron",
                                     mother_positive_test_during_pregnancy_date >=delta_start & mother_positive_test_during_pregnancy_date <= delta_end ~ "Delta")) %>%
   filter(variant_period== "Delta" |variant_period== "Omicron") %>%
-  unique() # unique values - for multiple pregnancies with stillbirths, no baby upi can end up with multiple identical records when reduced to prg.mother,baby ID plus the infection date.
-          # need to reduce to unqiue lines before adding back on , else ends up duplicaiting rows
- 
+  unique() # unique values - for multiple pregnancies with stillbirths, 
+           #no baby upi can end up with multiple identical records when reduced to prg.mother,baby ID plus the infection date.
 
-summary(fetus_infections$mother_positive_test_during_pregnancy_date)
+
 #join back to main fetus level data.
 fetuslevel <- fetuslevel %>% 
   select(-c(tests_mother_value_positive_test_during_pregnancy_1, tests_mother_value_positive_test_during_pregnancy_2))
@@ -100,8 +97,7 @@ fetus_infections  <- fetus_infections  %>%
 #pregnancies####
 pregnancies <-readRDS(paste0(folder_temp_data, "script6b_pregnancy_level_record.rds"))
 
-#select pregnancies w infections only. limit to infection >June 2021
-#and make into long file with 2nd row for those with 2 infections in prengancy 
+#select pregnancies w infections only. limit to infection > delta start date
 pregnancies_infections <- pregnancies %>% filter(mother_tested_positive_during_pregnancy==1 & 
                                                    (mother_positive_test_during_pregnancy_1 >=delta_start |
                                                       mother_positive_test_during_pregnancy_2 >=delta_start ) ) %>%
@@ -131,9 +127,9 @@ pregnancies_infections <- pregnancies_infections %>%
 
 pregnancies_infections$ethnicity_reporting <- cops_reporting_ethnicity(pregnancies_infections$ethnicity_code)
 
-
+################################
 ##ICU admission - for covid ####
-#cox or just logistic? don't really care about time-to-failure, just Y/N within 21 days - so logistic may be more appropriate.
+################################
 # COVID RELATED SICSAG ####
 mother_upis <- read_rds(file.path(folder_temp_data, "mother_upis.rds"))
 end_date  <- today()
@@ -175,8 +171,6 @@ covid_ic_uor_hdu_recodes <- generate_recodes(df_ep, "covid_ic_uor_hdu")
 
 ## SICSAG TIDY DATA ####
 # remove SPSS labels, select columns we need, filter for only UPIs we need, recode some columns with SPSS label data
-
-
 start_date <- as.Date("2021-04-01")
 df_ep <- df_ep %>%
   zap_labels() %>%
@@ -212,7 +206,7 @@ df_ep <- df_ep %>%
   mutate(data_source = "SICSAG")
 
 
-#check ICU data for covid admissions without an assocuated test
+#check ICU data for covid admissions without an associated test
 covid_associated_icu_days <- 21
 icu <- df_ep %>% 
   select(mother_upi, admission_date, discharge_date, covid_ic_uor_hdu, prime_diag_unit, preg_status, data_source, 
@@ -273,9 +267,6 @@ pregnancies_icu_associated <- pregnancies_icu_2 %>%
   ungroup()
   
 
-check <- pregnancies_icu_associated %>% group_by(pregnancy_id, mother_positive_test_during_pregnancy_date) %>% 
-  summarise(count= sum(flag_covid_associated))
-table(check$count)
 #can only be one covid associated stay per test,so 
 pregnancies_icu_21 <- rbind(pregnancies_icu_1, pregnancies_icu_associated)
 ##sort NA values
@@ -284,15 +275,9 @@ pregnancies_icu_21 <- pregnancies_icu_21 %>%
   mutate(ethnicity_reporting = ifelse(is.na(ethnicity_reporting), "5 Unknown/missing", ethnicity_reporting)) %>%
   mutate(simd = ifelse(is.na(simd), 9, simd)) #%>%
 
-##ICU regression 21 days####
 saveRDS(pregnancies_icu_21, paste0(folder_temp_data, "variants_analysis/", "icu_model_data.rds"))
 
-model1 <- glm(flag_covid_associated ~ variant_period + simd + vaccination_status_at_infection  +gestation_at_infection+
-                mother_age_at_conception, data=pregnancies_icu_21, 
-family= binomial(link = "logit") )
-summary(model1)
-plot(model1)
-table(pregnancies_icu_21$flag_covid_associated , pregnancies_icu_21$variant_period, useNA="always")
+##ICU regression 21 days####
 
 vars <- c("variant_period", "simd", "gestation_at_infection",
           "vaccination_status_at_infection", "mother_age_at_outcome","icu_21", "reporting_ethnicity")
@@ -303,21 +288,11 @@ design <- svydesign(ids=~mother_upi,  data=pregnancies_icu_21)
 model1_1 <- svyglm(flag_covid_associated ~ variant_period,
                   design = design, data=pregnancies_icu_21, 
                   family= binomial(link = "logit") )
-summ(model1_1)
-
 summ(model1_1, exp=T, confint = T)
 
 saveRDS(summ(model1_1, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_unadj_OR.rds" ))
 table(pregnancies_icu_21$flag_covid_associated, pregnancies_icu_21$variant_period)
 
-model1a <- svyglm(flag_covid_associated~ variant_period + simd +gestation_at_infection+ 
-                    vaccination_status_at_infection + mother_age_at_conception, 
-                  design = design, data=pregnancies_icu_21, 
-              family= binomial(link = "logit") )
-summary(model1a)
-names(summary(model1a))
-summ(model1a, exp=T, confint = T)
-saveRDS(summ(model1a, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_model_summary.rds" ))
 
 model1b <- svyglm(flag_covid_associated~ variant_period + simd +gestation_at_infection+ 
                     vaccination_status_at_infection + mother_age_at_conception + ethnicity_reporting, 
@@ -328,16 +303,8 @@ model1b <- svyglm(flag_covid_associated~ variant_period + simd +gestation_at_inf
 summ(model1b, exp=T, confint = T)
 
 saveRDS(summ(model1b, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_model_summary_ethn.rds" ))
-model1bii <- svyglm(flag_covid_associated~ variant_period*vaccination_status_at_infection + simd +gestation_at_infection+ 
-                     mother_age_at_conception + ethnicity_reporting, 
-                  design = design, data=pregnancies_icu_21, 
-                  family= binomial(link = "logit") )
 
-
-summ(model1bii, exp=T, confint = T)
-saveRDS(summ(model1bii, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_model_interactions_summary_ethn.rds" ))
-
-
+#interaction check (probably too small numbers to show anything)
 pregnancies_icu_21 <- pregnancies_icu_21 %>% 
   mutate(any_vacc = ifelse(vaccination_status_at_infection != "0 - Unvaccinated", 1,0))
 model1bi <- svyglm(flag_covid_associated~ variant_period*any_vacc + 
@@ -383,11 +350,6 @@ pregnancies_icu_diag <- pregnancies_icu_2 %>%
   group_by(pregnancy_id, mother_positive_test_during_pregnancy_date) %>% slice_max(flag_covid_diag_in_stay) %>%
   ungroup()
 
-
-check <- pregnancies_icu_diag %>% group_by(pregnancy_id, mother_positive_test_during_pregnancy_date) %>% 
-  summarise(count= sum(flag_covid_diag_in_stay))
-table(check$count)
-#can only be one covid associated stay per test,so 
 pregnancies_icu <- rbind(pregnancies_icu_1, pregnancies_icu_diag)
 ##sort NA values
 pregnancies_icu <- pregnancies_icu %>% 
@@ -396,23 +358,15 @@ pregnancies_icu <- pregnancies_icu %>%
   mutate(simd = ifelse(is.na(simd), 9, simd)) #%>%
 
 
-table(pregnancies_icu$flag_covid_diag_in_stay, pregnancies_icu$variant_period, useNA="always")
-
 saveRDS(pregnancies_icu, paste0(folder_temp_data, "variants_analysis/", "icu_diag_model_data.rds"))
-
-model1.1 <- glm(flag_covid_diag_in_stay ~ variant_period + simd + vaccination_status_at_infection  +gestation_at_infection+
-                mother_age_at_conception, data=pregnancies_icu, 
-              family= binomial(link = "logit") )
-
-#plot(model1)
-table(pregnancies_icu$flag_covid_diag_in_stay , pregnancies_icu$variant_period, useNA="always")
 
 vars <- c("variant_period", "simd", "gestation_at_infection",
           "vaccination_status_at_infection", "mother_age_at_conception","icu_21", "reporting_ethnicity")
 
 vars %in% names(pregnancies_infections)
-design <- svydesign(ids=~mother_upi,  data=pregnancies_icu)
 
+design <- svydesign(ids=~mother_upi,  data=pregnancies_icu)
+#univariate
 model1.1_1 <- svyglm(flag_covid_diag_in_stay ~ variant_period,
                    design = design, data=pregnancies_icu, 
                    family= binomial(link = "logit") )
@@ -421,38 +375,20 @@ summ(model1.1_1, exp=T, confint = T)
 
 
 saveRDS(summ(model1.1_1, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_diag_unadj_OR.rds" ))
-table(pregnancies_icu$flag_covid_diag_in_stay, pregnancies_icu$variant_period)
 
-model1.1a <- svyglm(flag_covid_diag_in_stay~ variant_period + simd +gestation_at_infection+ 
-                    vaccination_status_at_infection + mother_age_at_conception, 
-                  design = design, data=pregnancies_icu, 
-                  family= binomial(link = "logit") )
-summary(model1.1a)
-names(summary(model1.1a))
-summ(model1.1a, exp=T, confint = T)
-saveRDS(summ(model1.1a, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_diag_model_summary.rds" ))
-
+#multivariate model
+#incl ethnicity
 model1.1b <- svyglm(flag_covid_associated~ variant_period + simd +gestation_at_infection+ 
                     vaccination_status_at_infection + mother_age_at_conception + ethnicity_reporting, 
                   design = design, data=pregnancies_icu, 
                   family= binomial(link = "logit") )
-summary(model1.1b)
-names(summary(model1.1b))
+
+
 summ(model1.1b, exp=T, confint = T)
 saveRDS(summ(model1.1b, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_diag_model_summary_ethn.rds" ))
 
 
 ##interacitons ####
-model1.1bi <- svyglm(flag_covid_diag_in_stay~ variant_period *vaccination_status_at_infection+ simd +gestation_at_infection+ 
-                      mother_age_at_conception+ ethnicity_reporting, 
-                    design = design, data=pregnancies_icu, 
-                    family= binomial(link = "logit") )
-
-
-summ(model1.1bi, exp=T, confint = T)
-saveRDS(summ(model1.1bi, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_diag_model_summary_interaction.rds" ))
-
-
 
 pregnancies_icu <- pregnancies_icu %>% 
   mutate(any_vacc = ifelse(vaccination_status_at_infection != "0 - Unvaccinated", 1,0))
@@ -470,10 +406,11 @@ table(pregnancies_icu$flag_covid_associated,pregnancies_icu$vaccination_status_a
 saveRDS(summ(model1.1bii, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "icu_diag_model_summary_interaction2.rds" ))
 
 
-
+##########################
 #pregnancy outcomes ####
-
+#########################
 #preterm####
+#counting live preterm only
 #limit denominator to 20-36 wks infection
 #limit denominator to those with pregnancies surviving 28+ beyond infection (i.e. live outcome or ongoing)
 fetus_preterm_denom <- fetus_infections %>% 
@@ -498,14 +435,6 @@ model2_1 <- svyglm(flag_covid_assoc_preterm ~ variant_period , data=fetus_preter
 summ(model2_1)
 saveRDS(summ(model2_1, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "preterm_unadj_OR.rds" ))
 
-#RDS::summary(model2_1, odds=TRUE)
-
-model2 <- 
-  svyglm(flag_covid_assoc_preterm ~ variant_period + x_simd + vaccination_status_at_infection
-         +gestation_at_infection  + x_mother_age_at_conception, design = design, data=fetus_preterm_denom, 
-         family= binomial(link = "logit") )
-summ(model2)
-saveRDS(summ(model2,exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "preterm_model_summary.rds" ))
 
 
 model2a <- 
@@ -517,15 +446,6 @@ summ(model2a,  exp=T, confint = T)
 saveRDS(summ(model2a, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "preterm_model_summary_eth.rds" ))
 
 ##interactions
-
-model2bi <-   svyglm(flag_covid_assoc_preterm ~ variant_period*vaccination_status_at_infection  + x_simd +
-                        gestation_at_infection  + 
-                      x_mother_age_at_conception + ethnicity_reporting, design = design, data=fetus_preterm_denom, 
-                      family= binomial(link = "logit") )
-
-summ(model2bi, exp=T, confint = T)
-saveRDS(summ(model2bi, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "preterm_model_interactions_summary.rds" ))
-
 fetus_preterm_denom  <-fetus_preterm_denom  %>% 
   mutate(any_vacc = ifelse(vaccination_status_at_infection != "0 - Unvaccinated", 1,0))
 design <- svydesign(data=fetus_preterm_denom, 
@@ -544,7 +464,6 @@ saveRDS(summ(model2bii, exp=T, confint = T),paste0(folder_temp_data, "variants_a
 
 
 #Stillbirths####
-
 all_births <- fetus_infections %>% 
   mutate(ethnicity_reporting = ifelse(is.na(ethnicity_reporting), "5 Unknown/missing", ethnicity_reporting)) %>%
   filter(outcome== "Live birth" | outcome=="Stillbirth" |(outcome=="Miscarriage" & x_gestation_at_outcome >=20) ) %>% # births only
@@ -554,15 +473,11 @@ all_births <- fetus_infections %>%
                                 outcome=="Stillbirth" ~1, 
                                 outcome=="Miscarriage" ~1) )#
 
-
 saveRDS(all_births , paste0(folder_temp_data, "variants_analysis/", "stillbirth_model_data.rds"))
 linked_stillbirths<- all_births %>% filter(stillbirth==1)
 
-table(all_births$variant_period, all_births$stillbirth)
-table(all_births$vaccination_status_at_infection, all_births$stillbirth)
-##now have 13 in delta period, shouild be 12...
 
-table(all_births$ethnicity_reporting, all_births$outcome) # all stillbirths white, so we wont get good estimates
+table(all_births$ethnicity_reporting, all_births$outcome) # all stillbirths white, so we wont get good estimates for ethnicity
 
 design <- svydesign(ids=~pregnancy_id,  data=all_births)
 model3_1 <-  svyglm(stillbirth~ variant_period,
@@ -575,8 +490,6 @@ model3 <-  svyglm(stillbirth~ variant_period + x_simd + vaccination_status_at_in
                    + x_mother_age_at_conception,
                    design = design, data=all_births, 
                    family= binomial(link = "logit") )
-summ(model3)
-
 
 saveRDS(summ(model3,  exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "stillbirth_model_summary.rds" ))
 
@@ -593,7 +506,7 @@ all_live_births <- fetus_infections %>% filter(outcome== "Live birth" ) %>% # li
 saveRDS(all_live_births , paste0(folder_temp_data, "variants_analysis/", "NND_model_data.rds"))
 
 table(all_live_births$NND, all_live_births$variant_period, useNA="always")
-table(all_live_births$NND, all_live_births$ethnicity_reporting, useNA="always")# all nnds are white e
+table(all_live_births$NND, all_live_births$ethnicity_reporting, useNA="always")#
 
 design <- svydesign(ids=~pregnancy_id,  data=all_live_births)
 
@@ -604,14 +517,7 @@ summ(model4_1)
 saveRDS(summ(model4_1,  exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "NND_unadj_OR.rds" ))
 
 
-
-model4 <-  svyglm(NND~ variant_period + x_simd + vaccination_status_at_infection +gestation_at_infection  + x_mother_age_at_outcome+
-                     ethnicity_reporting,
-                   design = design, data=all_live_births, 
-                   family= binomial(link = "logit") )
-summary(model4)
-saveRDS(summ(model4,  exp=T, confint=T),paste0(folder_temp_data, "variants_analysis/", "NND_model_summary_ethn.rds" ))
-
+##excl. ethnicity numbers too low
 model4a <-  svyglm(NND~ variant_period + x_simd + vaccination_status_at_infection +gestation_at_infection  + x_mother_age_at_outcome,
                   design = design, data=all_live_births, 
                   family= binomial(link = "logit") )
@@ -620,7 +526,7 @@ saveRDS(summ(model4a,  exp=T, confint = T),paste0(folder_temp_data, "variants_an
 
 #Low apgar####
 #only live births at term included
-#so denominator = all term births up to 28 days after infection - I tihnk...
+#denominator = all live term births up to 28 days after infection 
 
 term_births <- fetus_infections %>%  filter(infection_to_end %in% 0:27) %>% # only biths within 28 days of infection
   filter(outcome== "Live birth" & x_gestation_at_outcome >=37 ) %>% # live term births only
@@ -650,6 +556,7 @@ model5 <-  svyglm(low_apgar ~ variant_period + x_simd + vaccination_status_at_in
 summ(model5, exp=T, confint = T)
 saveRDS(summ(model5,  exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "apgar_model_summary_ethn.rds" ))
 
+readRDS(paste0(folder_temp_data, "variants_analysis/", "apgar_model_summary_ethn.rds" ))
 model5a <-  svyglm(low_apgar ~ variant_period + x_simd + vaccination_status_at_infection +
                     gestation_at_infection  + x_mother_age_at_outcome,
                   design = design, data=term_birth, 
@@ -657,28 +564,17 @@ model5a <-  svyglm(low_apgar ~ variant_period + x_simd + vaccination_status_at_i
 summ(model5a, exp=T, confint = T)
 saveRDS(summ(model5a, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "apgar_model_summary.rds" ))
 
-
-
 table( lubridate::month(term_births$x_pregnancy_end_date, label=T), is.na(term_births$low_apgar)) 
 table( lubridate::month(term_births$x_pregnancy_end_date, label=T), is.na(term_births$smr02_admission_date)) 
+##higher % missingness in omicron era.
 
-##higher % missingness in omicron era. most missing ones are in feb, esp end feb
-table(is.na(term_births$smr02_admission_date),is.na(term_births$low_apgar)) 
-
-#more investigation, some do have an smr02 - so presume tehy never get an apgar.
+#
 missing_apgars <- term_births %>% filter(is.na(low_apgar))
 table(missing_apgars$x_baby_dob[is.na(missing_apgars$smr02_live_birth)], missing_apgars$variant_period[is.na(missing_apgars$smr02_live_birth)])
 table(is.na(missing_apgars$smr02_live_birth), missing_apgars$variant_period)
-#         Delta Omicron
-#FALSE     7       4
-#TRUE     17      50
-#11 records do have an smr02, but just missing apgar. majority do not have smr02 yet.
-#we can accept those with smr02 & other valid info on smr02 but missing apgar but there is a big dfference in missing smr02 records between periods/
 
 ### neonatal infections####
-#only live births  included
-#so denominator = all term births up to 28 days after infection - I tihnk...
-
+#denominator = all live births up to 28 days after infection.
 live_births <- fetus_infections %>%  filter(infection_to_end %in% 0:27) %>% # only biths within 28 days of infection
   filter(outcome== "Live birth" ) %>% # live term births only
   filter(mother_positive_test_during_pregnancy_date >= delta_start) %>% # test in time period
@@ -701,7 +597,6 @@ NNI_denominator <- live_births %>% group_by(variant_period) %>% summarise(n_covi
 NNI_table <- left_join(nninfections,early_nninfections)
 NNI_table <- left_join(NNI_table, NNI_denominator)
 
-NNI_table
 saveRDS(NNI_table, paste0(folder_temp_data, "variants_analysis/", "NNI_table.rds"))
 
 table(live_births$neonate_infection,live_births$variant_period, useNA="always")
@@ -736,7 +631,7 @@ model7_1 <-  svyglm(early_neonate_infection~ variant_period,
 summ(model7_1, exp=T, confint = T)
 saveRDS(summ(model7_1, exp=T, confint = T),paste0(folder_temp_data, "variants_analysis/", "earlyNNI_unadj_OR.rds" ))
 
-
+#numbers too low for MV analysis
 model7 <-  svyglm(early_neonate_infection ~ variant_period + x_simd + vaccination_status_at_infection +
                     gestation_at_infection  + x_mother_age_at_outcome,
                   design = design, data=live_birth, 

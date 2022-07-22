@@ -1,8 +1,23 @@
 fetus_level_temp_1 <- read_rds(paste0(folder_temp_data, "script5_pregnancy_record_matched.rds"))
 
 urban_rural_8_labels <- read_csv(paste0(folder_temp_data, "ur8_labels.csv"))
-ethnicity_labels <- read_csv(paste0(folder_temp_data, "ethnicity_labels.csv"))
 
+simd_pc <- readRDS(simd_hb_lookup) %>% select(pc7,simd2020v2_sc_quintile)
+ur_pc <- haven::read_sav(ur_lookup) %>% select(pc7,UR6_2016, UR8_2016)
+
+mother_upi_dobs_from_chi <- read_rds(paste0(folder_temp_data, "mother_upis_dob_from_CHI.rds"))
+
+ethnicity_vacc_lookup_full <-  readRDS(ethnicity_vacc_lookup_path) %>% 
+  clean_names() %>% 
+  rename_with( ~ paste0("vacc_", .))
+
+ethnicity_labels <- ethnicity_vacc_lookup_full %>% 
+  select(vacc_ethnic_code, vacc_ethnic_code_desc_long) %>% 
+  distinct() %>% 
+  arrange(vacc_ethnic_code)
+
+ethnicity_vacc_lookup <- ethnicity_vacc_lookup_full %>% 
+  select(vacc_upi_number, vacc_ethnic_code)
 
 #### Determine Pregnancy End Date ####
 fetus_level_temp_2 <- fetus_level_temp_1 %>%
@@ -90,9 +105,11 @@ fetus_level_temp_4 <- fetus_level_temp_3 %>%
 
 #### Determine Mother DOB ####
 fetus_level_temp_5 <- fetus_level_temp_4 %>%
+  left_join(mother_upi_dobs_from_chi %>% rename(mother_upi = upi)) %>% 
   rowwise() %>%
   mutate(x_mother_dob = first_(
     c(
+      as.Date(chi_dob),
       as.Date(smr02_dob),
       as.Date(nhslb_mothers_dob),
       as.Date(aas_date_of_birth),
@@ -138,9 +155,14 @@ fetus_level_temp_8 <- fetus_level_temp_7 %>%
       smr01_dr_postcode
     )))
 
+#Join geographical variables based on postcode ####
+
+fetus_level_temp_8a <- fetus_level_temp_8 %>% left_join(ur_pc, by =c( "x_postcode" ="pc7")) %>%
+  left_join(simd_pc , by =c( "x_postcode" ="pc7")) %>%
+  rename(pc_simd = simd2020v2_sc_quintile,  pc_UR8 = UR8_2016)
 
 #### Determine Healthboard of Residence ####
-fetus_level_temp_9 <- fetus_level_temp_8 %>%
+fetus_level_temp_9 <- fetus_level_temp_8a %>%
   rowwise() %>%
   mutate(x_hbres = first_(
     c(
@@ -168,6 +190,7 @@ fetus_level_temp_10 <- fetus_level_temp_9 %>%
       nrssb_simd2020v2_sc_quintile,
       smr01_simd2020v2_sc_quintile,
       anbooking_simd2020v2_sc_quintile,
+      pc_simd, 
       eave_simd
     )
   ))
@@ -210,7 +233,9 @@ fetus_level_temp_12 <- fetus_level_temp_11 %>%
                                          ~ "ex-smoker",
                                          T ~ NA_character_)) %>% 
   mutate(x_overall_smoking_status = first_(c(x_booking_smoking_status, 
-                                             x_gp_smoking_status)))
+                                             x_gp_smoking_status))) %>% 
+  mutate(x_overall_smoking_status = if_else((x_gp_smoking_status == "smoker" | x_gp_smoking_status == "ex-smoker")
+                                            & x_booking_smoking_status == "non-smoker", "ex-smoker", x_overall_smoking_status))
 
 tabyl(fetus_level_temp_12$x_booking_smoking_status)
 tabyl(fetus_level_temp_12$x_gp_smoking_status)
@@ -218,21 +243,35 @@ tabyl(fetus_level_temp_12$x_overall_smoking_status)
 
 
 #### Determine Mother Ethnicity ####
+
 fetus_level_temp_13 <- fetus_level_temp_12 %>%
   rowwise() %>%
-  mutate(x_ethnicity9 = first_(c(smr02_ethnic_group_mapped9, 
-                                        smr01_ethnic_group_mapped9,
-                                        q_ethnicity_mapped9
-                                        ))) %>%
-  left_join(ethnicity_labels, by=c("x_ethnicity9"="ethnicity9"))
+  left_join(ethnicity_vacc_lookup, by = c("mother_upi" = "vacc_upi_number")) %>% 
+  mutate(smr02_ethnic_group = if_else(smr02_ethnic_group == "98" | smr02_ethnic_group == "99", NA_character_, smr02_ethnic_group)) %>% 
+  mutate(smr01_ethnic_group = if_else(smr01_ethnic_group == "98" | smr01_ethnic_group == "99", NA_character_, smr01_ethnic_group)) %>% 
+  mutate(anbooking_ethnicity = if_else(anbooking_ethnicity == "98" | anbooking_ethnicity == "99", NA_character_, anbooking_ethnicity)) %>% 
+  mutate(vacc_ethnic_code = if_else(vacc_ethnic_code == "98" | vacc_ethnic_code == "99", NA_character_, vacc_ethnic_code)) %>% 
+  mutate(x_ethnicity_code = first_(c(smr02_ethnic_group, 
+                                smr01_ethnic_group,
+                                anbooking_ethnicity,
+                                vacc_ethnic_code
+  ))) %>% 
+  left_join(ethnicity_labels, by = c("x_ethnicity_code" = "vacc_ethnic_code")) %>% 
+  rename(x_ethnicity_desc = vacc_ethnic_code_desc_long)
 
-tabyl(fetus_level_temp_13$x_ethnicity9)
+tabyl(fetus_level_temp_13$x_ethnicity_code)
+tabyl(fetus_level_temp_13$x_ethnicity_desc)
 
 #### Determine Mother Urban/Rural Classification ####
 fetus_level_temp_13a <- fetus_level_temp_13 %>%
-  left_join(urban_rural_8_labels, by=c("eave_ur8"="ur8"))
+  mutate(x_ur8 = first_(
+    c(pc_UR8, 
+      eave_ur8)
+    )) %>%
+left_join(urban_rural_8_labels, by=c("x_ur8"="ur8"))
 
 tabyl(fetus_level_temp_13a$x_urban_rural_8_description)
+#table(fetus_level_temp_13a$pc_UR8, fetus_level_temp_13a$eave_ur8)
 
 #### Determine Baby Sex ####
 fetus_level_temp_14 <- fetus_level_temp_13a %>%
@@ -297,7 +336,18 @@ fetus_level_temp_18 <- fetus_level_temp_17 %>%
   mutate(x_gestation_at_outcome = case_when(outcome == "Unknown" ~ 44,
                                T ~ x_gestation_at_outcome))
   
-
+#### Fix apparent mid-pregnancy terminations #### 
+fetus_level_temp_28 <- fetus_level_temp_18 %>%
+  mutate(days_between_top_end = if_else(!is.na(aas_date_of_termination), difftime(x_pregnancy_end_date, aas_date_of_termination, units = "days"),
+                                        difftime(x_pregnancy_end_date, smr02_admission_date, units = "days"))) %>% 
+  mutate(outcome = case_when(outcome == "Termination" & days_between_top_end >= 30 & 
+                               (nhslb_outcome_type == "Live birth" | nrslb_outcome_type == "Live birth" | smr02_outcome_type == "Live birth") 
+                             ~ "Live birth",
+                             outcome == "Termination" & days_between_top_end >= 30 & 
+                               (nrssb_outcome_type == "Stillbirth" | smr02_outcome_type == "Stillbirth") 
+                             ~ "Stillbirth",
+                              T ~ outcome )) %>% 
+  select(-days_between_top_end)
 
 #### Assign infant death status ####
 data_infant_deaths_triplicate <- read_rds(paste0(folder_temp_data, "infant_deaths.rds")) %>% 
@@ -311,17 +361,17 @@ data_infant_deaths_chi <- read_rds(paste0(folder_temp_data, "infant_deaths.rds")
   filter(!is.na(chi)) %>%
   rename(chi_date_of_baby_death = date_of_baby_death)
 
-fetus_level_temp_19 <- fetus_level_temp_18 %>% 
-  mutate(x_nrs_triplicate_id = case_when(!is.na(nrslb_year_of_registration) & !is.na(nrslb_registration_district) & !is.na(nrslb_entry_number) ~
+fetus_level_temp_19 <- fetus_level_temp_28 %>% 
+  mutate(x_nrs_lb_triplicate_id = case_when(!is.na(nrslb_year_of_registration) & !is.na(nrslb_registration_district) & !is.na(nrslb_entry_number) ~
                                         paste0(nrslb_year_of_registration, "_", nrslb_registration_district, "_", nrslb_entry_number)))
 
 fetus_level_temp_20 <- fetus_level_temp_19 %>%
-  left_join(data_infant_deaths_triplicate, by = c("x_nrs_triplicate_id" = "nrs_triplicate_id")) %>%
+  left_join(data_infant_deaths_triplicate, by = c("x_nrs_lb_triplicate_id" = "nrs_triplicate_id")) %>%
   left_join(data_infant_deaths_chi, by = c("baby_upi" = "chi")) %>%
   rowwise() %>%
   mutate(x_date_of_baby_death = first_(c(triplicate_date_of_baby_death, chi_date_of_baby_death))) %>%
   ungroup() %>%
-select(-c(triplicate_date_of_baby_death, chi_date_of_baby_death))
+  select(-c(triplicate_date_of_baby_death, chi_date_of_baby_death))
 
 rm(data_infant_deaths_chi, data_infant_deaths_triplicate)
 
@@ -344,10 +394,17 @@ fetus_level_temp_22 <- fetus_level_temp_21 %>%
 print("Fetus outcomes after infant death reassignemnt")
 tabyl(fetus_level_temp_22$outcome)
 
-
+#### Fix terminations with incorrect dates that have been matched to births #### 
+fetus_level_temp_29 <- fetus_level_temp_22 %>%
+  mutate(outcome = case_when(outcome == "Termination" & nhslb_outcome_type == "Live birth" & is.na(x_date_of_baby_death)
+                             ~ "Live birth",
+                             outcome == "Termination" & is.na(nhslb_outcome_type) 
+                             ~ "Termination",
+                             T ~ outcome))
 
 #### Determine Shielding Status ####
-fetus_level_temp_23 <- fetus_level_temp_22 %>%
+#fetus_level_temp_22  <- left_join(fetus_level_temp_22 ,  data_shielding, by=c("mother_upi" = "shielding_chi"))
+fetus_level_temp_23 <- fetus_level_temp_29 %>%
   rowwise() %>%
   mutate(shielding_group_any = max_(c(shielding_group1, shielding_group2, shielding_group3, shielding_group4, shielding_group5, shielding_group6, shielding_group7))) %>%
   ungroup()
@@ -356,7 +413,9 @@ fetus_level_temp_23 <- fetus_level_temp_22 %>%
 fetus_level_temp_24 <- fetus_level_temp_23 %>%
   rowwise() %>%
   mutate(q_bmi_40_plus = case_when(q_bmi >= 40 ~ 1)) %>%
-  mutate(q_diag_renal_failure = case_when(q_diag_ckd_level >= 3 ~ 1)) %>%
+  mutate(q_diag_renal_failure = case_when(q_diag_ckd3 == 1 ~ 1,
+                                          q_diag_ckd4 == 1 ~ 1,
+                                          q_diag_ckd5 == 1 ~ 1)) %>%
   mutate(q_covid_diag_any = max_(c( q_diag_af,
                                     q_diag_asthma,
                                     q_diag_blood_cancer,
@@ -383,43 +442,53 @@ fetus_level_temp_24 <- fetus_level_temp_23 %>%
                                     q_diag_sickle_cell,
                                     q_diag_stroke,
                                     q_diag_vte))) %>%
+  mutate(q_covid_diag_any_excluding_diabetes = max_(c( q_diag_af,
+                                                       q_diag_asthma,
+                                                       q_diag_blood_cancer,
+                                                       q_diag_ccf,
+                                                       q_diag_cerebralpalsy,
+                                                       q_diag_chd,
+                                                       q_diag_cirrhosis,
+                                                       q_diag_renal_failure,
+                                                       q_diag_congen_hd,
+                                                       q_diag_copd,
+                                                       q_diag_dementia,
+                                                       q_diag_epilepsy,
+                                                       q_diag_fracture,
+                                                       q_diag_neuro,
+                                                       q_diag_parkinsons,
+                                                       q_diag_pulm_hyper,
+                                                       q_diag_pulm_rare,
+                                                       q_diag_pvd,
+                                                       q_diag_ra_sle,
+                                                       q_diag_resp_cancer,
+                                                       q_diag_sev_ment_ill,
+                                                       q_diag_sickle_cell,
+                                                       q_diag_stroke,
+                                                       q_diag_vte))) %>%
   ungroup()
 
 
 #### Determine Clinical Vulnerability ####
 fetus_level_temp_25 <- fetus_level_temp_24 %>%
   mutate(cv_clinical_vulnerability_category = case_when(shielding_group_any == 1 ~ "clinically_extremely_vulnerable",
-                                                        q_covid_diag_any == 1 ~ "clinically_vulnerable",
+                                                        q_covid_diag_any_excluding_diabetes == 1 ~ "clinically_vulnerable",
                                                         T ~ "not_clinically_vulnerable"))
 
-
-
-#### Determine COVID wave ####
-# First wave, second wave etc
-fetus_level_temp_26 <- fetus_level_temp_25 %>% 
-  mutate(x_first_wave = case_when( 
-      x_est_conception_date <= as.Date("2020-06-30") & x_pregnancy_end_date >= as.Date("2020-03-01")  |  
-      x_est_conception_date <= as.Date("2020-06-30") & outcome == "Ongoing"
-        ~ T,
-      T ~ F)) %>%
-  mutate(x_full_cohort = case_when(
-    x_est_conception_date <= as.Date("2021-03-31") & x_pregnancy_end_date >= as.Date("2020-03-01")  |  
-    x_est_conception_date <= as.Date("2021-03-31") & outcome == "Ongoing"
-    ~ T,
-    T ~ F)) %>% 
-  filter(x_first_wave == T | x_full_cohort == T | x_est_conception_date >= as.Date("2020-03-01"))
-
-sum_(fetus_level_temp_26$x_first_wave)
-sum_(fetus_level_temp_26$x_full_cohort)
-fetus_level_temp_26 %>% filter(outcome == "Live birth") %>% filter(x_first_wave == TRUE) %>% count()
-fetus_level_temp_26 %>% filter(outcome == "Live birth") %>% filter(x_full_cohort == TRUE) %>% count()
-
+#### Determine Diabetes Status ####
+fetus_level_temp_25a <- fetus_level_temp_25 %>%
+  mutate(x_diabetes = case_when(smr02_diabetes == 2 ~ "gestational_diabetes",
+                                smr02_diabetes == 1 | (q_diag_diabetes_1 == 1 | q_diag_diabetes_2 == 1) ~ "pre-existing_diabetes",
+                                smr02_diabetes == 3 & q_diag_diabetes_1 == 0 & q_diag_diabetes_2 == 0 ~ "diabetes_onset_unknown",
+                                smr02_diabetes %in% c(4, 9) ~ "confirmed_no_diabetes",
+                                q_diag_diabetes_1 == 0 & q_diag_diabetes_2 == 0 ~ "assumed_no_diabetes",
+                                T ~ "unknown"))
 
 #### Identify and correct overlapping pregnancies ####
 # Some women have several pregnancies which appear to overlap. This is mostly due to one pregnancy having a missing end date,
 # where there pregnancy has ended but we don't know when it ended. Another pregnancy has occurred, but because we've set the 
 # conception date for the previous pregnancy to conception_date + 44 weeks, it appears the pregnancies are concurrent.
-fetus_level_temp_26a <- fetus_level_temp_26 %>%
+fetus_level_temp_26 <- fetus_level_temp_25a %>%
   select(mother_upi, x_est_conception_date, x_pregnancy_end_date, x_gestation_at_outcome, everything()) %>%
   arrange(mother_upi, x_est_conception_date, x_pregnancy_end_date) %>%
   group_by(mother_upi) %>%
@@ -438,8 +507,28 @@ fetus_level_temp_26a <- fetus_level_temp_26 %>%
   ungroup()
 
 
-#### Drop old variables and re-order file ###
+#### Determine COVID wave ####
+# First wave, second wave etc
+fetus_level_temp_26a <- fetus_level_temp_26 %>% 
+  mutate(x_first_wave = case_when( 
+    x_est_conception_date <= as.Date("2020-06-30") & x_pregnancy_end_date >= as.Date("2020-03-01")  |  
+      x_est_conception_date <= as.Date("2020-06-30") & outcome == "Ongoing"
+    ~ T,
+    T ~ F)) %>%
+  mutate(x_full_cohort = case_when(
+    x_first_wave == 1 | 
+      x_est_conception_date >= as.Date("2020-03-31")
+    ~ T,
+    T ~ F))
 
+sum_(fetus_level_temp_26a$x_first_wave)
+sum_(fetus_level_temp_26a$x_full_cohort)
+fetus_level_temp_26a %>% filter(outcome == "Live birth") %>% filter(x_first_wave == TRUE) %>% count()
+fetus_level_temp_26a %>% filter(outcome == "Live birth") %>% filter(x_full_cohort == TRUE) %>% count()
+
+
+
+#### Drop old variables and re-order file ###
 fetus_level_temp_27 <- fetus_level_temp_26a %>% 
   select(-c(pregnancy_start_date, pregnancy_end_date)) %>% 
   dplyr::relocate(mother_upi, baby_upi, pregnancy_id, outcome, (starts_with('x', ignore.case = TRUE))) %>% 
@@ -460,19 +549,14 @@ fetus_level <- fetus_level_temp_27 %>%
                                T ~ "No")) %>% 
   mutate(gp_data_status = "GP data included")
 
-#### Create fetus-level file with no GP information ####
-fetus_level_no_gp <- fetus_level %>% 
-  mutate(outcome = case_when(gp_booked == "Yes" ~ "Unknown",
-                             T ~ outcome)) %>%  
-  filter((gp_only == 0) | 
-           (gp_booked == "Yes" & gp_only == 1)) %>% 
-  mutate(gp_data_status = "GP data excluded")
+#### Flag cases with invalid mother UPI number ####
+fetus_level <- fetus_level %>%
+  mutate(chi_validity = chi_check(mother_upi))
+
 
 #### Write fetus-level files ####
-fetus_level %>% write_rds(paste0(folder_temp_data, "script6_baby_level_record.rds"))
-
-fetus_level_no_gp %>% write_rds(paste0(folder_temp_data, "script6_baby_level_no_gp.rds"))
+fetus_level %>% write_rds(paste0(folder_temp_data, "script6_baby_level_record.rds"), compress = "gz")
 
 rm(fetus_level_temp_16, fetus_level_temp_17, fetus_level_temp_18, fetus_level_temp_19, fetus_level_temp_20, fetus_level_temp_21,
-   fetus_level_temp_22, fetus_level_temp_23, fetus_level_temp_24, fetus_level_temp_25, fetus_level, fetus_level_no_gp,
-   fetus_level_temp_26, fetus_level_temp_26a, fetus_level_temp_27)
+   fetus_level_temp_22, fetus_level_temp_23, fetus_level_temp_24, fetus_level_temp_25, fetus_level,
+   fetus_level_temp_26, fetus_level_temp_26a, fetus_level_temp_27, fetus_level_temp_28)

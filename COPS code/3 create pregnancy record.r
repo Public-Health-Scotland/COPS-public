@@ -17,16 +17,15 @@ temp_nrssb_events       <- data_nrs_stillbirths %>% select(nrssb_mother_upi_numb
 temp_gplosses_events    <- data_gp_losses %>% select(gp_losses_chi_number, gp_losses_outcome_type, gp_losses_start_date, gp_losses_estimated_conception_date, event_id) %>% mutate(data_source = "gp_losses")
 temp_anbooking_events   <- data_an_booking %>% select(anbooking_upi, anbooking_event_type, anbooking_booking_date, anbooking_estimated_conception_date, event_id) %>% mutate(data_source = "antenatal_booking")
 
-colnames(temp_smr01_events)      <-  c("mother_upi", "event_type", "event_date", "conception_date", "event_id", "data_source")
-colnames(temp_smr02_events)      <-  c("mother_upi", "event_type", "event_date", "conception_date", "event_id", "data_source")
-colnames(temp_copsbirths_events) <-  c("mother_upi", "event_date","conception_date", "event_id", "nhs_live_births", "data_source", "event_type")
-colnames(temp_aas_events)        <-  c("mother_upi", "event_type", "event_date", "conception_date", "event_id", "data_source")
-colnames(temp_nrssb_events)      <-  c("mother_upi", "event_type", "event_date", "conception_date", "event_id", "data_source")
-colnames(temp_gplosses_events)   <-  c("mother_upi", "event_type", "event_date", "conception_date", "event_id", "data_source")
-colnames(temp_anbooking_events)  <-  c("mother_upi", "event_type", "event_date", "conception_date", "event_id", "data_source")
+colnames(temp_smr01_events)      <-  c("mother_chi", "event_type", "event_date", "conception_date", "event_id", "data_source")
+colnames(temp_smr02_events)      <-  c("mother_chi", "event_type", "event_date", "conception_date", "event_id", "data_source")
+colnames(temp_copsbirths_events) <-  c("mother_chi", "event_date","conception_date", "event_id", "nhs_live_births", "data_source", "event_type")
+colnames(temp_aas_events)        <-  c("mother_chi", "event_type", "event_date", "conception_date", "event_id", "data_source")
+colnames(temp_nrssb_events)      <-  c("mother_chi", "event_type", "event_date", "conception_date", "event_id", "data_source")
+colnames(temp_gplosses_events)   <-  c("mother_chi", "event_type", "event_date", "conception_date", "event_id", "data_source")
+colnames(temp_anbooking_events)  <-  c("mother_chi", "event_type", "event_date", "conception_date", "event_id", "data_source")
 
 
-#### Assign each event to a pregnancy ####
 pregnancies1 <- bind_rows(temp_smr01_events, 
                          temp_smr02_events, 
                          temp_copsbirths_events,
@@ -35,68 +34,70 @@ pregnancies1 <- bind_rows(temp_smr01_events,
                          temp_gplosses_events,
                          temp_anbooking_events
                          ) %>%
-  arrange(mother_upi, conception_date, event_date) %>%
-  mutate(mother_upi = case_when(is.na(mother_upi) ~ paste0("82", str_pad(string = row_number(), width = 8, side = "left", pad = "0")), # For the purposes of grouping pregnancies, it's useful for each woman to have a UPI
-                              T ~ mother_upi)) 
+  arrange(mother_chi, conception_date, event_date)
 
-pregnancies2 <- pregnancies1 %>%
-  arrange(mother_upi, event_date) %>%
-  mutate(event = 1)
+#### Replace mother CHI with UPI ####
+chi_to_upi <- as_tibble(
+  dbGetQuery(
+    SMRAConnection, paste0(
+      "
+      SELECT CHI_NUMBER as mother_chi, UPI_NUMBER as mother_upi
+      FROM UPIP.L_UPI_DATA")
+  )) %>%
+  clean_names() %>%
+  group_by(mother_chi) %>%
+  slice(1) %>%
+  ungroup()
 
+pregnancies1 %<>%
+  left_join(chi_to_upi)
+
+pregnancies1 %>%
+  select(mother_chi, mother_upi) %>%
+  mutate(chi_matches_upi = mother_chi == mother_upi) %>%
+  tabyl(chi_matches_upi)
+
+pregnancies1 %<>%
+  select(-mother_chi)
+
+rm(chi_to_upi)
+
+pregnancies1 %>%
+  mutate(validity = chi_check(mother_upi)) %>%
+  tabyl(validity)
+
+#### Add dummy UPI for any woman without a number ####
+pregnancies1 %<>%
+  mutate(mother_upi = if_else(is.na(mother_upi), paste0( # For the purposes of grouping pregnancies, it's useful for each woman to have a UPI
+    "82",
+    str_pad(
+      string = row_number(),
+      width = 8,
+      side = "left",
+      pad = "0"
+    )
+  ),
+  mother_upi)) 
+
+
+#### Group by event date ####
 # Assign each event to a single pregnancy event. This allows us to group events which seem to be related and which probably should belong to the same pregnancy. It helps us overcome any issues with innacurate conception dates. 
-repeat {
-  pregnancies2 <- pregnancies2 %>%
-    group_by(mother_upi, event) %>%
-    mutate(index_date = first(event_date)) %>% 
-    mutate(days_since_index_event = difftime(event_date, index_date, units = "days")) %>%
-    mutate(event = case_when(days_since_index_event > dedupe_period ~ event + 1,
-                                             T ~ event)) %>%
-    ungroup()
-  
-  print(Sys.time())
-  print("Max days since index event:")
-  print(max(pregnancies2$days_since_index_event))
-  
-  if (max(pregnancies2$days_since_index_event) <= dedupe_period) {
-    pregnancies2 <- pregnancies2 %>%
-      select(-c(index_date, days_since_index_event))
-    break # If no records take place more than 83 days after that person's latest index event, then we've successfully allocated every row to its proper COPS event group.
-  }
-  print("Running another loop...")
-}
+pregnancies2 <- 
+  moving_index_deduplication(pregnancies1, mother_upi, event_date, dedupe_period)
 
 pregnancies3 <- pregnancies2 %>%
-  group_by(mother_upi, event) %>%
+  group_by(mother_upi, cops_event) %>%
   mutate(revised_conception_date = min(conception_date)) %>%
-  ungroup() %>%
-  arrange(mother_upi, revised_conception_date) %>%
-  mutate(pregnancy = 1)
+  ungroup() 
 
-repeat {
-  pregnancies3 <- pregnancies3 %>%
-    group_by(mother_upi, pregnancy) %>%
-    mutate(index_date = first(revised_conception_date)) %>% # The first observed conception date for a woman becomes our initial index date, and then changes on every iteration to the first conception date which occurs > 83 days after the previous index date.
-    mutate(days_since_index_event = difftime(revised_conception_date, index_date, units = "days")) %>%
-    mutate(pregnancy = case_when(days_since_index_event > dedupe_period ~ pregnancy + 1,
-                                  T ~ pregnancy)) %>%
-    ungroup()
-  
-  print(Sys.time())
-  print("Max days since index event:")
-  print(max(pregnancies3$days_since_index_event))
-  
-  if (max(pregnancies3$days_since_index_event) <= dedupe_period) {
-    pregnancies3 <- pregnancies3 %>%
-      select(-c(index_date, days_since_index_event))
-    break # If no records take place more than 83 days after that person's latest index event, then we've successfully allocated every row to its proper COPS event group.
-  }
-  print("Running another loop...")
-}
+#### Group by conception date ####
+pregnancies3 <- 
+  moving_index_deduplication(pregnancies3, mother_upi, revised_conception_date, dedupe_period)
 
 pregnancies4 <- pregnancies3 %>% 
-  select(-c(revised_conception_date, event)) # This variable was based only on grouping by event date - pregnancy_start_date takes into account our final pregnancy groupings
+  select(-c(revised_conception_date)) %>% # This variable was based only on grouping by event date - pregnancy_start_date takes into account our final pregnancy groupings
+  rename(pregnancy = cops_event)
   
-
 #### Determine the start and end date of each pregnancy and check that bookings are grouped correctly ####
 pregnancies5 <- pregnancies4 %>%
   group_by(mother_upi, pregnancy) %>%
@@ -119,9 +120,28 @@ pregnancies5 <- pregnancies4 %>%
 
 write_rds(pregnancies5, paste0(folder_temp_data, "temp_pregnancies.rds"))
 rm(pregnancies1, pregnancies2, pregnancies3, pregnancies4, pregnancies5)
-
+#pick up point
 pregnancies5 <- read_rds(paste0(folder_temp_data, "temp_pregnancies.rds"))
 pregnancies6 <- pregnancies5 %>% filter(event_date <= Sys.Date()) # Delete any records with events which occur in the future
+
+#### Fix terminations or early losses that happen soon after a live birth and have been grouped with live birth ####
+pregnancies6 <- pregnancies6 %>% 
+  mutate(birth_date = if_else(event_type == "Live birth" | event_type ==  "Stillbirth", event_date, as.POSIXct("1970-01-01"))) %>% 
+  group_by(pregnancy_id) %>% 
+  mutate(birth_date = max_(birth_date)) %>% 
+  mutate(termination_loss_birth = if_else(("Live birth" %in% event_type | "Stillbirth" %in% event_type) & 
+                                            ("Termination" %in% event_type | "Molar pregnancy" %in% event_type | "Ectopic pregnancy" %in% event_type | "Miscarriage" %in% event_type), 1, 0)) %>% 
+  ungroup() %>% 
+  mutate(post_preg_termination_loss = if_else(termination_loss_birth == 1 & (event_type == "Termination" | event_type == "Molar pregnancy" | event_type == "Ectopic pregnancy" | event_type == "Miscarriage") 
+                                              & difftime(birth_date, event_date, units = "days") < - 30, 1, 0)) %>% 
+  rowwise() %>% 
+  mutate(pregnancy_id = if_else(post_preg_termination_loss == 1, UUIDgenerate(), pregnancy_id)) %>% 
+  ungroup() %>% 
+  group_by(pregnancy_id) %>% 
+  mutate(pregnancy_start_date = min_(conception_date)) %>%
+  mutate(pregnancy_end_date = max_(event_date)) %>% 
+  ungroup() %>% 
+  select(-c(birth_date, termination_loss_birth, post_preg_termination_loss))
 
 #### Figure out how many outcomes each pregnancy should have had ####
 temp_livebirths_num_of_outcomes    <- data_cops_births %>% select(baby_id, copsbirths_number_of_births) %>% rename(number_of_outcomes = copsbirths_number_of_births) %>% rename(event_id = baby_id)
@@ -152,7 +172,7 @@ pregnancies_multiple1  <- pregnancies7 %>% filter(number_of_outcomes >  1)
 pregnancies_singleton1 <- pregnancies_singleton1 %>%
   group_by(pregnancy_id) %>%
   mutate(exceptional_singleton = case_when(n() > 1 ~ T,
-                                           T ~F)) %>%
+                                           T ~ F)) %>%
   ungroup()
 
 pregnancies_singleton_exceptional <- pregnancies_singleton1 %>%
@@ -164,6 +184,7 @@ pregnancies_singleton_exceptional <- pregnancies_singleton1 %>%
                              "Ectopic pregnancy" %in% event_type ~ "Ectopic pregnancy",
                              "Molar pregnancy" %in% event_type ~ "Molar pregnancy",
                              "Miscarriage" %in% event_type ~ "Miscarriage")) %>%
+  arrange(nhs_live_births) %>% # Make sure records with an NHS Live Births record come first
   mutate(nhs_live_births = as.character(max_(nhs_live_births))) %>% 
   select(c(mother_upi, event_id, data_source, pregnancy_id, pregnancy_start_date, pregnancy_end_date, outcome, nhs_live_births)) %>%
   group_by(pregnancy_id, data_source) %>%
@@ -222,7 +243,7 @@ temp_stillbirths <- pregnancies_multiple_exceptional %>%
   rowwise() %>%
   mutate(baby_weight = first(na.omit(c(nrssb_weight_of_foetus, smr02_birthweight)))) %>%
   mutate(baby_sex = first(na.omit(c(nrssb_sex, smr02_sex)))) %>%
-  select(c(mother_upi:exceptional_multiple), baby_weight, baby_sex) %>%
+  #select(c(mother_upi:exceptional_multiple), baby_weight, baby_sex) %>%  # This line seems to be causing errors
   arrange(mother_upi, pregnancy_id, baby_sex, baby_weight) %>%
   group_by(pregnancy_id) %>%
   mutate(different_baby = case_when( row_number() == 1 ~ T,
@@ -298,15 +319,18 @@ pregnancies_all_outcomes <- pregnancies_all_outcomes %>%
 #### Resolve live birth discrepancies ####
 # We have a small number of cases where live births have been incorrectly pivoted. Each baby should occupy a single row, and there should not be two live babies on one row.
 # This issue arises especially when a birth occurs close to midnight, with one baby being born on one day and another on the next day.
-temp_second_babies <- pregnancies_all_outcomes %>%
-  filter(!is.na(cops_births_2)) %>%
-  select(-cops_births_1) %>%
-  rename(cops_births_1 = cops_births_2)
-
-pregnancies_all_outcomes <- pregnancies_all_outcomes %>%
-  filter(is.na(cops_births_2)) %>%
-  select(-cops_births_2) %>%
-  bind_rows(temp_second_babies)
+#  APRIL 2022 - Why did we decide to favour the COPS Births 2 over COPS Births 1 in these situation? A change has now been made to favour whatever COPS Births
+#  record hasd NHS Live Births on it - but we need to revisit this. 
+#
+# temp_second_babies <- pregnancies_all_outcomes %>%
+#   filter(!is.na(cops_births_2)) %>%
+#   select(-cops_births_1) %>%
+#   rename(cops_births_1 = cops_births_2)
+# 
+# pregnancies_all_outcomes <- pregnancies_all_outcomes %>%
+#   filter(is.na(cops_births_2)) %>%
+#   select(-cops_births_2) %>%
+#   bind_rows(temp_second_babies)
 
 
 #Pivot antenatal bookings to one row per pregnancy
@@ -314,6 +338,7 @@ pregnancies_an_booking_wide <- pregnancies_an_booking %>%
   select(mother_upi, pregnancy_id, event_id, data_source, pregnancy_start_date) %>%
   rename(an_mother_upi = mother_upi, an_pregnancy_start_date = pregnancy_start_date) %>%
   group_by(pregnancy_id) %>%
+  mutate(an_pregnancy_start_date = min(an_pregnancy_start_date)) %>% # We need to ensure that each pregnancy has a consistent AN Booking conception date, otherwise we'll end up with multiple lines per pregnancy after the pivot
   mutate(data_source = paste0(data_source, "_", row_number())) %>%
   pivot_wider(names_from = data_source, values_from = event_id)
 
@@ -328,13 +353,13 @@ pregnancies_all_outcomes_and_ongoing <- pregnancies_all_outcomes %>%
                              T ~ outcome)) %>%
   select(-c(an_mother_upi, an_pregnancy_start_date))
 
-#### Apply spine of NHS live births ####
+#### Drop any babies which are not observed on NHS Live Births ####
 pregnancies_nhs_spine <- pregnancies_all_outcomes_and_ongoing %>% 
   filter(outcome != "Live birth" | (outcome == "Live birth" & !is.na(nhs_live_births))) %>% 
   select(-nhs_live_births)
 
 #Save out final pregnancy record
-write_rds(pregnancies_nhs_spine, paste0(folder_temp_data, "script3_pregnancy_record.rds"))
+write_rds(pregnancies_nhs_spine, paste0(folder_temp_data, "script3_pregnancy_record.rds"), compress = "gz")
 
 rm(data_aas, data_an_booking, data_cops_births, data_gp_losses, data_nrs_stillbirths, data_smr01, data_smr02, final_threatened_early_losses,
    pregnancies_all_outcomes, pregnancies_an_booking, pregnancies_an_booking_wide, pregnancies_multiple1,

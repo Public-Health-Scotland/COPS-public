@@ -1,7 +1,7 @@
 
 data_smr01               <- read_rds(paste0(folder_temp_data, "smr01.rds")) %>% select(-smr01)
 data_smr02               <- read_rds(paste0(folder_temp_data, "smr02.rds")) 
-data_cops_births         <- read_rds(paste0(folder_temp_data, "cops_births_nhslb_spine.rds")) %>% # Only including birth records which appear at least in NHS Live Births - this matches the previous cohort generation code
+data_cops_births         <- read_rds(paste0(folder_temp_data, "cops_births.rds")) %>%
                               select(baby_id, nhs_live_births, nrs_live_births, smr02_live_births, baby_upi)
 data_aas                 <- read_rds(paste0(folder_temp_data, "aas.rds")) 
 data_nrs_stillbirths     <- read_rds(paste0(folder_temp_data, "nrs_stillbirths.rds"))
@@ -13,7 +13,7 @@ data_nrs_live_births <-      read_rds(paste0(folder_temp_data, "nrs_live_births.
 
 data_q_covid         <-      read_rds(paste0(folder_temp_data, "qcovid.rds"))
 data_shielding       <-      read_rds(paste0(folder_temp_data, "shielding.rds"))
-
+data_vaccine         <-      read_rds(paste0(folder_temp_data, "vaccine_cops.rds"))
 
 #### Read in Pregnancy Record ####
 pregnancies1 <- read_rds(paste0(folder_temp_data, "script3_pregnancy_record.rds"))

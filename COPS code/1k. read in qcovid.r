@@ -20,9 +20,9 @@ qcovid2 <- qcovid2  %>% mutate(Qversion = "Jan2021")
 qcovid1 <- qcovid1  %>% mutate(Qversion = "March2020")
 
 #qcovid_demog1 <- qcovid1 %>% select(EAVE_LINKNO, datazone2011, simd2020v2_sc_quintile, Qversion) 
-#urban_rural <- read_sav("/conf/linkage/output/lookups/Unicode/Geography/Urban Rural Classification/datazone2011_urban_rural_2016.sav")
+#urban_rural <- read_sav("/network_folder/datazone2011_urban_rural_2016.sav")
 #urban_rural <- urban_rural %>% select(Datazone2011, UR6_2016, UR8_2016)
-#SPD <- readRDS("/conf/linkage/output/lookups/Unicode/Geography/Scottish Postcode Directory/Scottish_Postcode_Directory_2021_2.rds")
+#SPD <- readRDS("/network_folder/Scottish_Postcode_Directory_2021_2.rds")
 #SPD <- SPD %>% select(datazone2011, hb2019name) %>% unique()
 #qcovid_demog1 <- qcovid_demog1 %>% left_join(SPD) %>% left_join(urban_rural, by = c("datazone2011" = "Datazone2011")) %>%
 #  rename(ur6 = UR6_2016, ur8 = UR8_2016, hb = hb2019name,  simd = simd2020v2_sc_quintile) %>% select(-datazone2011)
@@ -31,7 +31,7 @@ qcovid1 <- qcovid1  %>% mutate(Qversion = "March2020")
 #  rename(ur6 = UR6_2016, ur8 = UR8_2016, hb =hb2019name,  simd= simd2020 )#
 #qcovid_demog <- rbind(qcovid_demog1, qcovid_demog2)
 #rm(qcovid_demog1, qcovid_demog2)
-#saveRDS(qcovid_demog, paste0(folder_data, "QCovid/all_qcovid_demographics.rds"))
+#saveRDS(qcovid_demog, paste0(folder_data, "network_folder/all_qcovid_demographics.rds"))
 
 #rbind the 2 files
 #names(qcovid2)[which( !(names(qcovid2) %in% names(qcovid1)))]
