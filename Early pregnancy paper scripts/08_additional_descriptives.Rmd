@@ -1,0 +1,763 @@
+---
+title: "Early Pregnancy - Additional Descriptives"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, out.width = "100%")
+library(tidyverse)
+library(lubridate)
+library(kableExtra)
+library(dplyr)
+opts <- options(knitr.kable.NA = "")
+
+gest_imputed <- readRDS(paste0(folder_cohort, "cops_baby_level_record_anonymised.rds" )) %>% select(pregnancy_id, x_gestation_ascertainment ) %>% unique()
+
+
+# read in contemp controls data for miscarriage
+# note: these files are generated from running following scripts:
+#   1. 04b_miscarriage_analysis_secondary_analysis_additional_subgroup_analyses.R
+v.misc.data_c <- read_rds(paste0(folder_temp_data, "v_misc_data.rds"))
+v.misc.pfizer.data_c <- read_rds(paste0(folder_temp_data, "v_misc_pfizer_data.rds"))
+v.misc.AstraZeneca.data_c <- read_rds(paste0(folder_temp_data, "v_misc_AstraZeneca_data.rds"))
+v.misc.moderna.data_c <- read_rds(paste0(folder_temp_data, "v.misc.moderna.data.rds"))
+
+# read in historic controls data for miscarriage
+# note: these files are generated from running following scripts (which BT has adapted to write out interstitial dataframes:
+#   1. 04a_miscarriage_analysis.R
+v.misc.data_h <- read_rds(paste0(folder_temp_data, "v_misc_data_hist.rds"))
+v.misc.pfizer.data_h <- read_rds(paste0(folder_temp_data, "v_misc_pfizer_data_hist.rds"))
+v.misc.AstraZeneca.data_h <- read_rds(paste0(folder_temp_data, "v_misc_AstraZeneca_data_hist.rds"))
+v.misc.moderna.data_h <- read_rds(paste0(folder_temp_data, "v.misc.moderna.data_hist.rds"))
+
+
+# VACCINATION DATA ECTOPIC ####
+# read in contemp controls data for ectopic
+# note: these files are generated from running following scripts:
+#   1. 05b_ectopic_analysis_secondary_analysis_additional_subgroup_analyses.R
+v.ep.data_c <- read_rds(paste0(folder_temp_data, "v_ep_data.rds"))
+v.ep.pfizer.data_c <- read_rds(paste0(folder_temp_data, "v_ep_pfizer_data.rds"))
+v.ep.AstraZeneca.data_c <- read_rds(paste0(folder_temp_data, "v_ep_AstraZeneca_data.rds"))
+v.ep.moderna.data_c <- read_rds(paste0(folder_temp_data, "v.ep.moderna.data.rds"))
+
+# read in historic controls data for ectopic
+# note: these files are generated from running following scripts (which BT has adapted to write out interstitial dataframes)
+#   1. 05a_ectopic_analysis.R
+v.ep.data_h <- read_rds(paste0(folder_temp_data, "v_ep_data_hist.rds"))
+v.ep.pfizer.data_h <- read_rds(paste0(folder_temp_data, "v_ep_pfizer_data_hist.rds"))
+v.ep.AstraZeneca.data_h <- read_rds(paste0(folder_temp_data, "v_ep_AstraZeneca_data_hist.rds"))
+v.ep.moderna.data_h <- read_rds(paste0(folder_temp_data, "v.ep.moderna.data_hist.rds"))
+
+dose_1_valid <- c("dose 1 & dose 2","dose 1 & dose 2 & dose 3", "dose 1 & dose 3", "only dose 1" )
+dose_2_valid <- c( "dose 2 & dose 3", "only dose 2" )
+dose_3_valid <- c("dose 3 & dose 4","only dose 3" )
+dose_4_valid <- c(  "only dose 4" )
+
+dose_1_all_exposures <- c("dose 1 & dose 2","dose 1 & dose 2 & dose 3", "dose 1 & dose 3", "only dose 1" )
+dose_2_all_exposures <- c( "dose 2 & dose 3", "only dose 2", "dose 1 & dose 2","dose 1 & dose 2 & dose 3")
+dose_3_all_exposures <- c("dose 3 & dose 4","only dose 3", "dose 1 & dose 3", "dose 1 & dose 2 & dose 3")
+dose_4_all_exposures <- c( "dose 3 & dose 4",  "only dose 4" )
+
+
+#### Add in infection data 
+
+# INFECTION DATA MISCARRIAGE ####
+# read in contemp controls data for miscarriage
+# note: these files are generated from running following scripts:
+#   1. 06b_miscarriage_infection_secondary_analysis.R
+v.misc.data_inf_c <- read_rds(paste0(folder_temp_data, "v_misc_data_inf.rds"))
+
+# read in historic controls data for miscarriage
+# note: these files are generated from running following scripts (which BT has adapted to write out interstitial dataframes)
+#   1. 06a_miscarriage_infection_analysis.R
+v.misc.data_inf_h <- read_rds(paste0(folder_temp_data, "v_misc_data_inf_hist.rds"))
+
+
+# INFECTION DATA ECTOPIC ####
+# read in contemp controls data for ectopic
+# note: these files are generated from running following scripts:
+#   1. 07b_ectopic_infection_secondary_analysis.R
+v.ep.data_inf_c <- read_rds(paste0(folder_temp_data, "v_ep_data_inf.rds"))
+
+# read in historic controls data for miscarriage
+# note: these files are generated from running following scripts (which BT has adapted to write out interstitial dataframes)
+#   1. 07a_ectopic_infection_analysis.R
+v.ep.data_inf_h <- read_rds(paste0(folder_temp_data, "v_ep_data_inf_hist.rds"))
+
+
+
+
+```
+
+
+
+```{r function_for_table}
+
+get_numbers_for_table <- function (data, vacc = TRUE, analysis = "Miscarriage") {
+  
+  dose_1_valid <- c("dose 1 & dose 2","dose 1 & dose 2 & dose 3", "dose 1 & dose 3", "only dose 1" )
+  dose_2_valid <- c( "dose 2 & dose 3", "only dose 2" )
+  dose_3_valid <- c("dose 3 & dose 4","only dose 3" )
+  dose_4_valid <- c(  "only dose 4" )
+  
+  dose_1_all_exposures <- c("dose 1 & dose 2","dose 1 & dose 2 & dose 3", "dose 1 & dose 3", "only dose 1" )
+  dose_2_all_exposures <- c( "dose 2 & dose 3", "only dose 2", "dose 1 & dose 2","dose 1 & dose 2 & dose 3")
+  dose_3_all_exposures <- c("dose 3 & dose 4","only dose 3", "dose 1 & dose 3", "dose 1 & dose 2 & dose 3")
+  dose_4_all_exposures <- c( "dose 3 & dose 4",  "only dose 4" )
+  
+  one_dose_in_exposure <- c("only dose 1", "only dose 2", "only dose 3", "only dose 4")
+  two_dose_in_exposure <- c("dose 1 & dose 2", "dose 1 & dose 3", "dose 2 & dose 3", "dose 3 & dose 4")
+  three_dose_in_exposure <- c("dose 1 & dose 2 & dose 3")
+  
+  if(analysis == "Miscarriage") {
+    
+    data <- data %>%
+      mutate(gest_days_at_vax = case_when(miscarriage_vaccination_dose_information %in% dose_1_valid ~ 
+                                            difftime(dose_1_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                          miscarriage_vaccination_dose_information %in% dose_2_valid ~ 
+                                            difftime(dose_2_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                          miscarriage_vaccination_dose_information %in% dose_3_valid ~ 
+                                            difftime(dose_3_vacc_occurence_date, est_conception_date, units = c("days")) + 14,
+                                          miscarriage_vaccination_dose_information %in% dose_4_valid ~ 
+                                            difftime(dose_4_vacc_occurence_date, est_conception_date, units = c("days")) + 14), 
+             gest_weeks_at_vax = floor(gest_days_at_vax / 7), 
+             gest_weeks_at_vax_cat = case_when(between(gest_weeks_at_vax, 16, 19) ~ "16-19 weeks", 
+                                               between(gest_weeks_at_vax, 2, 5) ~ "2-5 weeks", 
+                                               between(gest_weeks_at_vax, 6, 10) ~ "6-10 weeks", 
+                                               between(gest_weeks_at_vax, 11, 15) ~ "11-15 weeks", 
+                                               gest_weeks_at_vax < 2 ~ "Preconception",
+                                               gest_weeks_at_vax >= 20 ~ ">=20")) %>%
+      mutate(gest_at_end = case_when(gestation_at_outcome < 11 ~ "<=10+6", 
+                                     between(gestation_at_outcome, 11, 13) ~ "11+0-13+6", 
+                                     gestation_at_outcome >=14 ~ ">=14+0")) %>% 
+      mutate(first_dose = case_when(miscarriage_vaccination_dose_information %in% dose_1_valid ~ "Dose 1", 
+                                    miscarriage_vaccination_dose_information %in% dose_2_valid ~ "Dose 2",
+                                    miscarriage_vaccination_dose_information %in% dose_3_valid ~ "Dose 3",
+                                    miscarriage_vaccination_dose_information %in% dose_4_valid ~ "Dose 4")) %>%
+      mutate(study_outcome = case_when(gestation_at_outcome >=20 ~ "Ongoing",  
+                                       overall_outcome %in% c("Live birth" ,"Molar pregnancy") &
+                                         gestation_at_outcome < 20 ~ "outcome_of_interest", 
+                                       overall_outcome == "Miscarriage" ~ "outcome_of_interest", 
+                                       TRUE ~ overall_outcome)) %>%
+      mutate(no_of_doses_in_exposure = case_when(miscarriage_vaccination_dose_information %in% one_dose_in_exposure ~ "1", 
+                                                 miscarriage_vaccination_dose_information %in% two_dose_in_exposure ~ "2+", 
+                                                 miscarriage_vaccination_dose_information %in% three_dose_in_exposure ~ "2+"), 
+             dose_information = miscarriage_vaccination_dose_information) %>% 
+      arrange(index) %>%
+      group_by(index) %>%
+      mutate(gest_at_match = max(miscarriage_gestation_at_reference_date, na.rm=T)) %>%
+      ungroup() %>%
+      mutate(gestation_lag = gestation_at_outcome - gest_at_match, 
+             gestation_lag_cat = case_when(gestation_lag < 2 ~ "<2",
+                                           between(gestation_lag, 2, 5) ~ "2-5",
+                                           between(gestation_lag, 6, 9) ~ "6-9",
+                                           gestation_lag >= 10 ~ ">=10"))
+
+    vaccinations_all_exposures <- bind_rows(
+      data %>%
+        filter(miscarriage_vaccination_dose_information %in% dose_1_all_exposures) %>%
+        mutate(dose = "Dose 1") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally(), 
+      
+      data %>%
+        filter(miscarriage_vaccination_dose_information %in% dose_2_all_exposures) %>%
+        mutate(dose = "Dose 2") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally(), 
+      
+      data %>%
+        filter(miscarriage_vaccination_dose_information %in% dose_3_all_exposures) %>%
+        mutate(dose = "Dose 3") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally(), 
+      
+      data %>%
+        filter(miscarriage_vaccination_dose_information %in% dose_4_all_exposures) %>%
+        mutate(dose = "Dose 4") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally() 
+    )
+    
+  } else if(analysis == "Ectopic") {
+    
+    data <- data %>%
+      mutate(gest_days_at_vax = case_when(ectopic_vaccination_dose_information %in% dose_1_valid ~ 
+                                            difftime(dose_1_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                          ectopic_vaccination_dose_information %in% dose_2_valid ~ 
+                                            difftime(dose_2_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                          ectopic_vaccination_dose_information %in% dose_3_valid ~ 
+                                            difftime(dose_3_vacc_occurence_date, est_conception_date, units = c("days")) + 14,
+                                          ectopic_vaccination_dose_information %in% dose_4_valid ~ 
+                                            difftime(dose_4_vacc_occurence_date, est_conception_date, units = c("days")) + 14), 
+             gest_weeks_at_vax = floor(gest_days_at_vax / 7), 
+             gest_weeks_at_vax_cat = case_when(between(gest_weeks_at_vax, 16, 19) ~ "16-19 weeks", 
+                                               between(gest_weeks_at_vax, 2, 5) ~ "2-5 weeks", 
+                                               between(gest_weeks_at_vax, 6, 10) ~ "6-10 weeks", 
+                                               between(gest_weeks_at_vax, 11, 15) ~ "11-15 weeks", 
+                                               gest_weeks_at_vax < 2 ~ "Preconception",
+                                               gest_weeks_at_vax >= 20 ~ ">=20")) %>%
+      mutate(gest_at_end = case_when(gestation_at_outcome < 11 ~ "<=10+6", 
+                                     between(gestation_at_outcome, 11, 13) ~ "11+0-13+6", 
+                                     gestation_at_outcome >=14 ~ ">=14+0")) %>% 
+      mutate(first_dose = case_when(ectopic_vaccination_dose_information %in% dose_1_valid ~ "Dose 1", 
+                                    ectopic_vaccination_dose_information %in% dose_2_valid ~ "Dose 2",
+                                    ectopic_vaccination_dose_information %in% dose_3_valid ~ "Dose 3",
+                                    ectopic_vaccination_dose_information %in% dose_4_valid ~ "Dose 4")) %>%
+      mutate(study_outcome = case_when(overall_outcome == "Ectopic pregnancy" ~ "outcome_of_interest",  
+                                       TRUE ~ overall_outcome)) %>%
+      mutate(no_of_doses_in_exposure = case_when(ectopic_vaccination_dose_information %in% one_dose_in_exposure ~ "1", 
+                                                 ectopic_vaccination_dose_information %in% two_dose_in_exposure ~ "2+", 
+                                                 ectopic_vaccination_dose_information %in% three_dose_in_exposure ~ "2+"), 
+             dose_information = ectopic_vaccination_dose_information) %>%
+      arrange(index) %>%
+      group_by(index) %>%
+      mutate(gest_at_match = max(ectopic_gestation_at_reference_date, na.rm=T)) %>%
+      ungroup() %>%
+      mutate(gestation_lag = gestation_at_outcome - gest_at_match,
+             gestation_lag_cat = case_when(gestation_lag < 2 ~ "<2",
+                                           between(gestation_lag, 2, 5) ~ "2-5",
+                                           between(gestation_lag, 6, 9) ~ "6-9",
+                                           gestation_lag >= 10 ~ ">=10"))
+
+
+    vaccinations_all_exposures <- bind_rows(
+      data %>%
+        filter(ectopic_vaccination_dose_information %in% dose_1_all_exposures) %>%
+        mutate(dose = "Dose 1") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally(), 
+      
+      data %>%
+        filter(ectopic_vaccination_dose_information %in% dose_2_all_exposures) %>%
+        mutate(dose = "Dose 2") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally(), 
+      
+      data %>%
+        filter(ectopic_vaccination_dose_information %in% dose_3_all_exposures) %>%
+        mutate(dose = "Dose 3") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally(), 
+      
+      data %>%
+        filter(ectopic_vaccination_dose_information %in% dose_4_all_exposures) %>%
+        mutate(dose = "Dose 4") %>%
+        group_by(vacc_or_unvacc, dose) %>%
+        tally() 
+    )
+    
+  }
+  
+  table <- bind_rows(
+    # n pregnancies 
+    data %>%
+      group_by(vacc_or_unvacc) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = "n_preg:"), 
+    
+    # gestation at first vaccine exposure 
+    data %>% 
+      group_by(vacc_or_unvacc, gest_weeks_at_vax_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("gest_at_first_vaccine_in_exposure_period: ", gest_weeks_at_vax_cat)),
+    
+    # number of vaccines given in exposure period (i.e., total number of doses a person is exposed to during the exposure period)
+    data %>%
+      group_by(vacc_or_unvacc, no_of_doses_in_exposure) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("no_of_doses_in_exposure_period: ", no_of_doses_in_exposure)),
+
+    # vaccine combo 
+    data %>%
+      group_by(vacc_or_unvacc, dose_information) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("vaccine_doses_given_during_exposure: ", dose_information)),
+
+    # first vaccine dose that was given in exposure period
+    data %>% 
+      group_by(vacc_or_unvacc, first_dose) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("first_vaccine_dose_in_exposure: ", first_dose)),
+    
+    # n pregnancies ending in miscarriage up to 19+6 
+    data %>% 
+      filter(study_outcome == "outcome_of_interest") %>% 
+      group_by(vacc_or_unvacc) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("n_preg_ending_in_", analysis, ":")), 
+    
+    # gestation at end of pregnancy 
+    data %>% 
+      filter(study_outcome == "outcome_of_interest") %>% 
+      group_by(vacc_or_unvacc, gest_at_end) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("gestation_at_end_pregnancy: ", gest_at_end)),
+    
+    # imputed gestation
+    data %>%
+      left_join(., gest_imputed, by = "pregnancy_id") %>%
+      filter(study_outcome == "outcome_of_interest") %>%
+      group_by(vacc_or_unvacc, x_gestation_ascertainment) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("imputed_gestation: ", x_gestation_ascertainment)),
+    
+    # lag between first vaccination in exposure and end of pregnancy 
+    data %>% 
+      filter(study_outcome == "outcome_of_interest") %>% 
+      group_by(vacc_or_unvacc, gestation_lag_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = vacc_or_unvacc, values_from = n) %>% 
+      mutate(rowname = paste0("lag_between_first_vaccine_in_exposure: ", gestation_lag_cat))
+    
+  )
+  
+  table <- table %>% 
+    select(rowname, vacc, unvacc) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category"))
+  
+  if(vacc == FALSE) {
+    
+    table <- table %>% select(-vacc) %>% rename(historic = "unvacc") 
+    
+  } else if(vacc == TRUE) {
+    
+    table <- table %>% rename(contemporary = "unvacc") 
+    
+  }
+  
+  return(table)
+  
+}
+
+
+
+get_numbers_for_table_infections <- function(data, infect = TRUE, analysis = "Miscarriage") {
+  
+  if(analysis == "Miscarriage") {
+    
+    data <- data %>%
+      mutate(study_outcome = case_when(gestation_at_outcome >=20 ~ "Ongoing",  
+                                       overall_outcome %in% c("Live birth" ,"Molar pregnancy") &
+                                         gestation_at_outcome < 20 ~ "outcome_of_interest", 
+                                       overall_outcome == "Miscarriage" ~ "outcome_of_interest", 
+                                       TRUE ~ overall_outcome)) %>%
+      mutate(gest_at_end = case_when(gestation_at_outcome < 11 ~ "<=10+6", 
+                                     between(gestation_at_outcome, 11, 13) ~ "11+0-13+6", 
+                                     gestation_at_outcome >=14 ~ ">=14+0")) %>% 
+      # arrange(index) %>%
+      # group_by(index) %>%
+      # mutate(gest_at_match = max(miscarriage_gestation_at_index_date, na.rm=T)) %>%
+      # ungroup() %>%
+      mutate(gestation_lag = gestation_at_outcome - gest_at_match, 
+             gestation_lag_cat = case_when(gestation_lag < 2 ~ "<2",
+                                           between(gestation_lag, 2, 5) ~ "2-5",
+                                           between(gestation_lag, 6, 9) ~ "6-9",
+                                           gestation_lag >= 10 ~ ">=10"))
+
+    
+    
+  } else if(analysis == "Ectopic") {
+    
+    data <- data %>%
+      mutate(study_outcome = case_when(overall_outcome == "Ectopic pregnancy" ~ "outcome_of_interest",  
+                                       TRUE ~ overall_outcome)) %>%
+      mutate(gest_at_end = case_when(gestation_at_outcome < 11 ~ "<=10+6", 
+                                     between(gestation_at_outcome, 11, 13) ~ "11+0-13+6", 
+                                     gestation_at_outcome >=14 ~ ">=14+0")) %>% 
+      # arrange(index) %>%
+      # group_by(index) %>%
+      # mutate(gest_at_match = max(ectopic_gestation_at_index_date, na.rm=T)) %>%
+      # ungroup() %>%
+      mutate(gestation_lag = gestation_at_outcome - gest_at_match,
+             gestation_lag_cat = case_when(gestation_lag < 2 ~ "<2",
+                                           between(gestation_lag, 2, 5) ~ "2-5",
+                                           between(gestation_lag, 6, 9) ~ "6-9",
+                                           gestation_lag >= 10 ~ ">=10"))
+    
+  }
+  
+  table <- bind_rows(
+
+  # N preg ending in miscarriage
+    data %>% 
+      filter(study_outcome == "outcome_of_interest") %>% 
+      group_by(inf_or_uninf) %>%
+      tally() %>%
+      pivot_wider(names_from = inf_or_uninf, values_from = n) %>% 
+      mutate(rowname = paste0("n_preg_ending_in_", analysis, ":")), 
+
+  # Gestation at miscarriage
+  data %>% 
+    filter(study_outcome == "outcome_of_interest") %>% 
+    group_by(inf_or_uninf, gest_at_end) %>%
+    tally() %>%
+    pivot_wider(names_from = inf_or_uninf, values_from = n) %>% 
+    mutate(rowname = paste0("gestation_at_end_pregnancy: ", gest_at_end)),
+  
+  # Imputed Gestation 
+  data %>%
+    left_join(., gest_imputed, by = "pregnancy_id") %>%
+    filter(study_outcome == "outcome_of_interest") %>%
+    group_by(inf_or_uninf, x_gestation_ascertainment) %>%
+    tally() %>%
+    pivot_wider(names_from = inf_or_uninf, values_from = n) %>% 
+    mutate(rowname = paste0("imputed_gestation: ", x_gestation_ascertainment)),
+
+  # Lag between first infection and miscarriage 
+  data %>%
+    filter(study_outcome == "outcome_of_interest") %>% 
+    group_by(inf_or_uninf, gestation_lag_cat) %>%
+    tally() %>%
+    pivot_wider(names_from = inf_or_uninf, values_from = n) %>% 
+    mutate(rowname = paste0("lag_between_first_infection_in_exposure: ", gestation_lag_cat))
+    
+  ) 
+  
+  table <- table %>% 
+    select(rowname, inf, uninf) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category"))
+
+  
+  if(infect == FALSE) {
+    
+    table <- table %>% select(-inf) %>% rename(historic = "uninf") 
+    
+  } else if(infect == TRUE) {
+    
+    table <- table %>% rename(contemporary = "uninf") 
+    
+  }
+  
+  return(table)
+  
+}
+
+
+
+
+```
+
+# Miscarriages 
+
+```{r miscarriage_table}
+
+# miscarriage table 
+miscarriage_all_vaccines <- full_join(get_numbers_for_table(v.misc.data_c, vacc=TRUE, analysis = "Miscarriage"), 
+                                      get_numbers_for_table(v.misc.data_h, vacc = FALSE, analysis = "Miscarriage")) %>%
+  select(category, sub_category, vacc, historic, contemporary) %>%
+  rename(vacc_all = "vacc", 
+         contemporary_all = "contemporary", 
+         historic_all = "historic")
+
+miscarriage_pfizer <- full_join(get_numbers_for_table(v.misc.pfizer.data_c, vacc=TRUE, analysis = "Miscarriage"), 
+                                      get_numbers_for_table(v.misc.pfizer.data_h, vacc = FALSE, analysis = "Miscarriage")) %>%
+  select(category, sub_category, vacc, historic, contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         historic_pfizer = "historic") 
+
+miscarriage_moderna <- full_join(get_numbers_for_table(v.misc.moderna.data_c, vacc=TRUE, analysis = "Miscarriage"), 
+                                      get_numbers_for_table(v.misc.moderna.data_h, vacc = FALSE, analysis = "Miscarriage")) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         historic_moderna = "historic") %>%
+  select(category, sub_category, vacc_moderna, historic_moderna, contemporary_moderna)
+
+miscarriage_AstraZeneca <- full_join(get_numbers_for_table(v.misc.AstraZeneca.data_c, vacc=TRUE, analysis = "Miscarriage"), 
+                                      get_numbers_for_table(v.misc.AstraZeneca.data_h, vacc = FALSE, analysis = "Miscarriage")) %>%
+  select(category, sub_category, vacc, historic, contemporary) %>%
+  rename(vacc_AstraZeneca = "vacc", 
+         contemporary_AstraZeneca = "contemporary", 
+         historic_AstraZeneca = "historic") 
+
+miscarriage_table <- miscarriage_all_vaccines %>%
+  full_join(., miscarriage_pfizer) %>%
+  full_join(., miscarriage_moderna) %>%
+  full_join(., miscarriage_AstraZeneca) %>%
+  filter(sub_category != " NA" & sub_category != " no dose") %>%
+  group_by(category) %>%
+  mutate(percentage_all = round(as.numeric(vacc_all)/sum(as.numeric(vacc_all), na.rm = T)*100, 1), 
+         percentage_pfizer = round(as.numeric(vacc_pfizer)/sum(as.numeric(vacc_pfizer), na.rm = T)*100, 1), 
+         percentage_moderna = round(as.numeric(vacc_moderna)/sum(as.numeric(vacc_moderna), na.rm = T)*100, 1),
+         percentage_astra = round(as.numeric(vacc_AstraZeneca)/sum(as.numeric(vacc_AstraZeneca), na.rm = T)*100, 1)) %>%
+  mutate(vacc_all = paste0(vacc_all, " (", percentage_all, "%)"), 
+         vacc_pfizer = paste0(vacc_pfizer, " (", percentage_pfizer, "%)"),
+         vacc_moderna = paste0(vacc_moderna, " (", percentage_moderna, "%)"), 
+         vacc_AstraZeneca = paste0(vacc_AstraZeneca, " (", percentage_astra, "%)")) %>%
+  mutate(percentage_all = round(as.numeric(historic_all)/sum(as.numeric(historic_all), na.rm = T)*100, 1), 
+         percentage_pfizer = round(as.numeric(historic_pfizer)/sum(as.numeric(historic_pfizer), na.rm = T)*100, 1), 
+         percentage_moderna = round(as.numeric(historic_moderna)/sum(as.numeric(historic_moderna), na.rm = T)*100, 1),
+         percentage_astra = round(as.numeric(historic_AstraZeneca)/sum(as.numeric(historic_AstraZeneca), na.rm = T)*100, 1)) %>%
+  mutate(historic_all = paste0(historic_all, " (", percentage_all, "%)"), 
+         historic_pfizer = paste0(historic_pfizer, " (", percentage_pfizer, "%)"),
+         historic_moderna = paste0(historic_moderna, " (", percentage_moderna, "%)"), 
+         historic_AstraZeneca = paste0(historic_AstraZeneca, " (", percentage_astra, "%)")) %>%
+  mutate(percentage_all = round(as.numeric(contemporary_all)/sum(as.numeric(contemporary_all), na.rm = T)*100, 1), 
+         percentage_pfizer = round(as.numeric(contemporary_pfizer)/sum(as.numeric(contemporary_pfizer), na.rm = T)*100, 1), 
+         percentage_moderna = round(as.numeric(contemporary_moderna)/sum(as.numeric(contemporary_moderna), na.rm = T)*100, 1),
+         percentage_astra = round(as.numeric(contemporary_AstraZeneca)/sum(as.numeric(contemporary_AstraZeneca), na.rm = T)*100, 1)) %>%
+  mutate(contemporary_all = paste0(contemporary_all, " (", percentage_all, "%)"), 
+         contemporary_pfizer = paste0(contemporary_pfizer, " (", percentage_pfizer, "%)"),
+         contemporary_moderna = paste0(contemporary_moderna, " (", percentage_moderna, "%)"), 
+         contemporary_AstraZeneca = paste0(contemporary_AstraZeneca, " (", percentage_astra, "%)")) %>%
+  replace(. == "NA (NA%)", NA) %>%
+  ungroup() %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   " Preconception"," 2-5 weeks"," 6-10 weeks"," 11-15 weeks", " 16-19 weeks", 
+                                                   " 1", " 2+", 
+                                                   " only dose 1", " only dose 2", " only dose 3", " dose 1 & dose 2", 
+                                                   " dose 1 & dose 2 & dose 3", " dose 1 & dose 3", 
+                                                   " dose 2 & dose 3", " dose 3 & dose 4", 
+                                                   " Dose 1", " Dose 2", " Dose 3", 
+                                                   " <=10+6", " 11+0-13+6", " >=14+0", 
+                                                   " Gestation calculated from gestation at booking",
+                                                   " Gestation imputed based on outcome of pregnancy", 
+                                                   " Gestation recorded on end of pregnancy record", 
+                                                   " <2", " 2-5", " 6-9", " >=10"))) %>% 
+  arrange(colname, category) %>%
+  select(-c(percentage_all, percentage_astra, percentage_pfizer, percentage_moderna, colname))
+  
+write_csv(miscarriage_table, paste0(folder_temp_output, "miscarriage_table_vaccine_info.csv"))
+
+miscarriage_table <- miscarriage_table %>%
+  select(-c(category))
+
+
+colname <- c("", rep(c("Vaccinated", "Historical Controls", "Contemporary Controls"), 4))
+
+kableExtra::kable(miscarriage_table, caption = "Vaccination & Miscarriage Breakdown Table", col.names = colname, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 3, "Pfizer" = 3, "Moderna" = 3, "AstraZeneca" = 3)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, "N pregnancies ending in miscarriage up to 19+6" = 1,
+              "Gestation at first vaccination within exposure period" = 5,
+              "Number of Doses given in exposure period" = 2, 
+              "Vaccine Dose combinations given during exposure period" = 8, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Gestation at end of pregnancy" = 3, 
+              "Imputed gestation at end of pregnancy" = 3, 
+              "Lag between first vaccination in exposure period and end of pregnancy in weeks" = 4)) %>%
+  kable_styling(font_size = 10)
+
+
+
+
+
+```
+
+
+# Ectopic Pregnancies 
+
+```{r ectopic_pregnancies_table}
+# ectopic table 
+ectopic_all_vaccines <- full_join(get_numbers_for_table(v.ep.data_c, vacc=TRUE, analysis = "Ectopic"), 
+                                  get_numbers_for_table(v.ep.data_h, vacc = FALSE, analysis = "Ectopic")) %>%
+  select(category, sub_category, vacc, historic, contemporary) %>%
+  rename(vacc_all = "vacc", 
+         contemporary_all = "contemporary", 
+         historic_all = "historic")
+
+
+ectopic_pfizer <- full_join(get_numbers_for_table(v.ep.pfizer.data_c, vacc=TRUE, analysis = "Ectopic"), 
+                                  get_numbers_for_table(v.ep.pfizer.data_h, vacc = FALSE, analysis = "Ectopic")) %>%   
+  select(category, sub_category, vacc, historic, contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         historic_pfizer = "historic")
+
+ectopic_moderna <- full_join(get_numbers_for_table(v.ep.moderna.data_c, vacc=TRUE, analysis = "Ectopic"), 
+                                  get_numbers_for_table(v.ep.moderna.data_h, vacc = FALSE, analysis = "Ectopic")) %>%
+  select(category, sub_category, vacc, historic, contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         historic_moderna = "historic")
+
+
+ectopic_AstraZeneca <- full_join(get_numbers_for_table(v.ep.AstraZeneca.data_c, vacc=TRUE, analysis = "Ectopic"), 
+                                  get_numbers_for_table(v.ep.AstraZeneca.data_h, vacc = FALSE, analysis = "Ectopic")) %>%
+  select(category, sub_category, vacc, historic, contemporary) %>%
+  rename(vacc_AstraZeneca = "vacc", 
+         contemporary_AstraZeneca = "contemporary", 
+         historic_AstraZeneca = "historic")
+
+ectopic_table <- ectopic_all_vaccines %>%
+  full_join(., ectopic_pfizer) %>%
+  full_join(., ectopic_moderna) %>%
+  full_join(., ectopic_AstraZeneca) %>%
+  filter(sub_category != " NA" & sub_category != " no dose") %>%
+  group_by(category) %>%
+  mutate(percentage_all = round(as.numeric(vacc_all)/sum(as.numeric(vacc_all), na.rm = T)*100, 1), 
+         percentage_pfizer = round(as.numeric(vacc_pfizer)/sum(as.numeric(vacc_pfizer), na.rm = T)*100, 1), 
+         percentage_moderna = round(as.numeric(vacc_moderna)/sum(as.numeric(vacc_moderna), na.rm = T)*100, 1),
+         percentage_astra = round(as.numeric(vacc_AstraZeneca)/sum(as.numeric(vacc_AstraZeneca), na.rm = T)*100, 1)) %>%
+  mutate(vacc_all = paste0(vacc_all, " (", percentage_all, "%)"), 
+         vacc_pfizer = paste0(vacc_pfizer, " (", percentage_pfizer, "%)"),
+         vacc_moderna = paste0(vacc_moderna, " (", percentage_moderna, "%)"), 
+         vacc_AstraZeneca = paste0(vacc_AstraZeneca, " (", percentage_astra, "%)")) %>%
+  mutate(percentage_all = round(as.numeric(historic_all)/sum(as.numeric(historic_all), na.rm = T)*100, 1), 
+         percentage_pfizer = round(as.numeric(historic_pfizer)/sum(as.numeric(historic_pfizer), na.rm = T)*100, 1), 
+         percentage_moderna = round(as.numeric(historic_moderna)/sum(as.numeric(historic_moderna), na.rm = T)*100, 1),
+         percentage_astra = round(as.numeric(historic_AstraZeneca)/sum(as.numeric(historic_AstraZeneca), na.rm = T)*100, 1)) %>%
+  mutate(historic_all = paste0(historic_all, " (", percentage_all, "%)"), 
+         historic_pfizer = paste0(historic_pfizer, " (", percentage_pfizer, "%)"),
+         historic_moderna = paste0(historic_moderna, " (", percentage_moderna, "%)"), 
+         historic_AstraZeneca = paste0(historic_AstraZeneca, " (", percentage_astra, "%)")) %>%
+  mutate(percentage_all = round(as.numeric(contemporary_all)/sum(as.numeric(contemporary_all), na.rm = T)*100, 1), 
+         percentage_pfizer = round(as.numeric(contemporary_pfizer)/sum(as.numeric(contemporary_pfizer), na.rm = T)*100, 1), 
+         percentage_moderna = round(as.numeric(contemporary_moderna)/sum(as.numeric(contemporary_moderna), na.rm = T)*100, 1),
+         percentage_astra = round(as.numeric(contemporary_AstraZeneca)/sum(as.numeric(contemporary_AstraZeneca), na.rm = T)*100, 1)) %>%
+  mutate(contemporary_all = paste0(contemporary_all, " (", percentage_all, "%)"), 
+         contemporary_pfizer = paste0(contemporary_pfizer, " (", percentage_pfizer, "%)"),
+         contemporary_moderna = paste0(contemporary_moderna, " (", percentage_moderna, "%)"), 
+         contemporary_AstraZeneca = paste0(contemporary_AstraZeneca, " (", percentage_astra, "%)")) %>%
+  replace(. == "NA (NA%)", NA) %>%
+  ungroup() %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   " Preconception"," 2-5 weeks", 
+                                                   " 1", " 2+", 
+                                                   " only dose 1", " only dose 2", " only dose 3", " dose 1 & dose 2", 
+                                                   " Dose 1", " Dose 2", " Dose 3", 
+                                                   " <=10+6", " 11+0-13+6", " >=14+0", 
+                                                   " Gestation calculated from gestation at booking",
+                                                   " Gestation imputed based on outcome of pregnancy", 
+                                                   " Gestation recorded on end of pregnancy record", 
+                                                   " <2", " 2-5", " 6-9", " >=10"))) %>% 
+  arrange(colname, category) %>%
+  select(-c(percentage_all, percentage_astra, percentage_pfizer, percentage_moderna, colname))
+
+write_csv(ectopic_table, paste0(folder_temp_output, "ectopic_table_vaccine_info.csv"))
+
+ectopic_table <- ectopic_table %>%
+  select(-c(category))
+
+write_csv(ectopic_table, paste0(folder_temp_output, "ectopic_table_vaccine_info.csv"))
+
+colname <- c("", rep(c("Vaccinated", "Historical Controls", "Contemporary Controls"), 4))
+
+kableExtra::kable(ectopic_table, caption = "Vaccination & Ectopic Breakdown Table", col.names = colname, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 3, "Pfizer" = 3, "Moderna" = 3, "AstraZeneca" = 3)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, "N pregnancies ending in ectopic outcome" = 1, 
+              "Gestation at first vaccination within exposure period" = 2,
+              "Number of Doses given in exposure period" = 2, 
+              "Vaccine Dose combinations given during exposure period" = 4, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Gestation at end of pregnancy" = 3, 
+              "Imputed gestation at end of pregnancy" = 3, 
+              "Lag between first vaccination in exposure period and end of pregnancy in weeks" = 3)) %>%
+  kable_styling(font_size = 10)
+
+
+
+
+```
+
+# Infections 
+
+## Miscarriages
+
+```{r}
+
+miscarriage_infection <- full_join(get_numbers_for_table_infections(v.misc.data_inf_c, 
+                                                                    infect=TRUE, 
+                                                                    analysis = "Miscarriage"), 
+                                   get_numbers_for_table_infections(v.misc.data_inf_h, 
+                                                                    infect = FALSE, 
+                                                                    analysis = "Miscarriage")) %>%
+  select(category, sub_category, inf, historic, contemporary) %>%
+  group_by(category) %>%
+  mutate(percentage_inf = round(as.numeric(inf)/sum(as.numeric(inf), na.rm = T)*100, 1), 
+         percentage_historic = round(as.numeric(historic)/sum(as.numeric(historic), na.rm = T)*100, 1), 
+         percentage_contemp = round(as.numeric(contemporary)/sum(as.numeric(contemporary), na.rm = T)*100, 1)) %>%
+  mutate(inf = paste0(inf, " (", percentage_inf, "%)"), 
+         historic = paste0(historic, " (", percentage_historic, "%)"),
+         contemporary = paste0(contemporary, " (", percentage_contemp, "%)")) %>%
+    ungroup() %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   " <=10+6", " 11+0-13+6", " >=14+0", 
+                                                   " Gestation calculated from gestation at booking",
+                                                   " Gestation imputed based on outcome of pregnancy", 
+                                                   " Gestation recorded on end of pregnancy record", 
+                                                   " <2", " 2-5", " 6-9", " >=10"))) %>% 
+  arrange(colname, category) %>%
+  select(-c(percentage_inf, percentage_historic, percentage_contemp, colname)) %>%
+  replace(. == "NA (NA%)", NA) 
+
+write_csv(miscarriage_infection, paste0(folder_temp_output, "miscarriage_table_infection_info.csv"))
+
+miscarriage_infection <- miscarriage_infection %>%
+  select(-c(category))
+
+colname <- c("", "Infected", "Historical Controls", "Contemporary Controls")
+
+kableExtra::kable(miscarriage_infection, caption = "Infection & Miscarriage Breakdown Table", col.names = colname, booktabs = TRUE) %>%
+  pack_rows(
+    index = c("N pregnancies ending in miscarriage up to 19+6" = 1,
+              "Gestation at end of pregnancy" = 3, 
+              "Imputed gestation at end of pregnancy" = 3, 
+              "Lag between first infection in exposure period and end of pregnancy in weeks" = 4)) %>%
+  kable_styling(font_size = 10)
+
+
+
+```
+
+## Ectopics
+
+```{r}
+
+ectopic_infection <- full_join(get_numbers_for_table_infections(v.ep.data_inf_c, 
+                                                                infect=TRUE, 
+                                                                analysis = "Ectopic"), 
+                               get_numbers_for_table_infections(v.ep.data_inf_h, 
+                                                                infect = FALSE, 
+                                                                analysis = "Ectopic")) %>%
+  select(category, sub_category, inf, historic, contemporary) %>%
+  group_by(category) %>%
+  mutate(percentage_inf = round(as.numeric(inf)/sum(as.numeric(inf), na.rm = T)*100, 1), 
+         percentage_historic = round(as.numeric(historic)/sum(as.numeric(historic), na.rm = T)*100, 1), 
+         percentage_contemp = round(as.numeric(contemporary)/sum(as.numeric(contemporary), na.rm = T)*100, 1)) %>%
+  mutate(inf = paste0(inf, " (", percentage_inf, "%)"), 
+         historic = paste0(historic, " (", percentage_historic, "%)"),
+         contemporary = paste0(contemporary, " (", percentage_contemp, "%)")) %>%
+    ungroup() %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   " <=10+6", " 11+0-13+6", " >=14+0", 
+                                                   " Gestation calculated from gestation at booking",
+                                                   " Gestation imputed based on outcome of pregnancy", 
+                                                   " Gestation recorded on end of pregnancy record", 
+                                                   " <2", " 2-5", " 6-9", " >=10"))) %>% 
+  arrange(colname, category) %>%
+  select(-c(percentage_inf, percentage_historic, percentage_contemp, colname)) %>%
+  replace(. == "NA (NA%)", NA) 
+
+write_csv(ectopic_infection, paste0(folder_temp_output, "ectopic_table_infection_info.csv"))
+
+ectopic_infection <- ectopic_infection %>%
+  select(-c(category))
+
+colname <- c("", "Infected", "Historical Controls", "Contemporary Controls")
+
+kableExtra::kable(ectopic_infection, caption = "Infection & ectopic Breakdown Table", col.names = colname, booktabs = TRUE) %>%
+  pack_rows(
+    index = c("N pregnancies ending in ectopic up to 19+6" = 1,
+              "Gestation at end of pregnancy" = 1, 
+              "Imputed gestation at end of pregnancy" = 3, 
+              "Lag between first infection in exposure period and end of pregnancy in weeks" = 3)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
