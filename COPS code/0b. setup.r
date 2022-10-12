@@ -6,7 +6,7 @@
 library(remotes)
 #remotes::install_github("Public-Health-Scotland/phstemplates", ref = "main")
 
-#install.packages("mschart")
+#install.packages("cowplot")
 
 #renv::snapshot()
 
@@ -40,7 +40,8 @@ library(mschart)
 library(openxlsx)
 library(haven)
 library(tictoc)
-
+library(ggthemes)
+library(cowplot)
 
 ## FOLDER LOCATIONS REMOVED FOR PUBLIC RELEASE ##
 
@@ -49,13 +50,16 @@ dedupe_period <- 83 # This variable is used to deduplicate outcomes within datas
 
 cohort_start_date <- lubridate::ymd("2015-01-01")
 
-publication_latest_vacc_date <- lubridate::ymd("2022-03-31") # This date may need amended
-publication_date <- lubridate::ymd("2022-05-11") # This date may need amended
+publication_latest_vacc_date <- lubridate::ymd("2022-07-31") # This date may need amended
+publication_date <- lubridate::ymd("2022-09-07") # This date may need amended
 
 vacc_start_date <- as.Date("2020-12-01")
 
 
-SMRAConnection <- dbConnect(odbc() ### DATABASE CONNECTION DETAILS REMOVED FOR PUBLIC RELEASE
+SMRAConnection <- dbConnect(odbc(),
+                            dsn = "SMRA",
+                            uid = Sys.info()[["user"]], #Assumes the user's SMR01 username is the same as their R server username
+                            pwd = read_lines("~/pass.txt")) #Assumes the user has their password saved in a pass.txt file in their home directory on the R server
 
 icd10_miscarriage                             <- as_vector(read_excel(paste0(folder_documentation, "Early spontaneous loss codes.xlsx"), "Miscarriage ICD10"))
 icd10_molar                                   <- as_vector(read_excel(paste0(folder_documentation, "Early spontaneous loss codes.xlsx"), "Molar ICD10"))
@@ -116,7 +120,6 @@ cops_reporting_ethnicity <- function(ethnicity_code) {case_when(str_starts(ethni
                                                                 is.na(ethnicity_code) ~ "5 Unknown/missing", 
                                                                 substr(toupper(ethnicity_code),1,2) %in% c("99", "98") ~ "5 Unknown/missing", 
                                                                 toupper(ethnicity_code)=="UNKNOWN" | str_detect( toupper(ethnicity_code), "REFUSED") ~ "5 Unknown/missing")} 
-
 
 vaccination_status <- function(dose_1_date, dose_2_date, dose_3_date, reference_date){
   one_dose_date <- dose_1_date + days(21)
@@ -477,11 +480,13 @@ moving_index_deduplication <- function(dataframe, identifier, date, deduplicatio
     print(paste0(nrow(dataframe), " rows in loop"))
     
     # This code groups records into COPS Events.
-    print("Grouping data")
-    dataframe %<>% group_by({{ identifier }}, cops_event)
-    
     print("Determining index date")
-    dataframe %<>% mutate(index_date = first({{ date }})) # The first observed admission date for a woman becomes our initial index date, and then changes on every iteration to the first admission date which occurs >83 days after the previous index date.
+    # dataframe %<>% mutate(index_date = first({{ date }})) # The first observed admission date for a woman becomes our initial index date, and then changes on every iteration to the first admission date which occurs >83 days after the previous index date.
+    dataframe <- dataframe %>% 
+      dtplyr::lazy_dt() %>% 
+      group_by({{ identifier }}, cops_event) %>% 
+      mutate(index_date = first({{ date }})) %>% 
+      collect() %>% ungroup()
     
     print("Calculating time differences")
     dataframe %<>% mutate(days_since_index_event = difftime({{ date }}, index_date, units = "days"))
@@ -489,12 +494,16 @@ moving_index_deduplication <- function(dataframe, identifier, date, deduplicatio
     print("Setting COPS event counter")
     dataframe %<>% mutate(cops_event = if_else(days_since_index_event > deduplication_period, cops_event + 1, cops_event))
     
-    print("Ungrouping")
-    dataframe %<>% ungroup()
-    
     print("Determining completed groupings")
-    dataframe %<>% group_by({{ identifier }})
-    dataframe %<>% mutate(max_days = max(days_since_index_event)) %>% ungroup()
+    # dataframe %<>% group_by({{ identifier }})
+    # dataframe %<>% mutate(max_days = max(days_since_index_event)) %>% ungroup()
+    dataframe <- dataframe %>% 
+      dtplyr::lazy_dt() %>% 
+      group_by({{ identifier }}) %>% 
+      mutate(max_days = max(days_since_index_event)) %>% 
+      collect() %>% 
+      ungroup()
+    
     dataframe %<>% mutate(grouping_complete = if_else(max_days <= deduplication_period, 1, 0))
     temp_complete_grouping <- dataframe %>% filter(grouping_complete == T) %>% select(-grouping_complete)
     
@@ -504,7 +513,7 @@ moving_index_deduplication <- function(dataframe, identifier, date, deduplicatio
     dataframe %<>% filter(grouping_complete == F) %>% select(-grouping_complete)
     
     rm(temp_complete_grouping)
-
+    
     toc()
     
     if (nrow(dataframe) == 0) {

@@ -1,7 +1,7 @@
 #### Read in Shielding Data ####
 data_shielding <-
   read_csv(
-    paste0(folder_data, "network_folder/all_upis_matched_2022-04-04.csv"),
+    paste0(folder_data, "network_folder/all_upis_matched_2022-09-08.csv"),
     col_types = cols(
       Removal = col_character()
     )

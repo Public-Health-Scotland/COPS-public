@@ -1,9 +1,15 @@
 #### Read in AAS Terminations ####
 data_aas_terminations <-
   read_csv(
-    paste0(folder_data, "network_folder/COPS_ToP_extracted_07042022.csv"),
+    paste0(folder_data, "network_folder/COPS_ToP_extracted_25082022.csv"),
     col_types = cols(
-      UPI_NUMBER = col_character(),
+      # name of the UPI_NUMBER field can change over subsequent extracts
+      # make sure the name below matches what is read, and use a rename() step if necessary immediately
+      # after read in, and before clean_names()
+      
+      # UPI_NUMBER = col_character(),
+      DERIVED_UPI = col_character(),
+      
       DATE_OF_BIRTH = col_datetime(format =
                                      "%Y-%m-%d"),
       DATE_OF_TERMINATION = col_datetime(format =
@@ -30,6 +36,7 @@ data_aas_terminations <-
       REDUCED_TO = col_number()
     )
   ) %>%
+  rename(UPI_NUMBER = DERIVED_UPI) %>% # can remove this line if the field in the .csv extract is already called UPI_NUMBER
   clean_names() %>%
   filter(date_of_termination >= cohort_start_date) %>% 
   mutate(pc7 = postcode(pc8)) %>% 

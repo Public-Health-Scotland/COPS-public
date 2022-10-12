@@ -1,17 +1,23 @@
 #### Read in vaccine data ####
 
-data_vaccine <- read_csv("/network_folder/dash_extract_Cohorts_preg_data_2022-04-13.csv")
+data_vaccine <- read_csv("/network_folder/dash_extract_Cohorts_preg_data_2022-08-25.csv")
 
 
 data_vaccine_COPS_temp <- data_vaccine %>% 
   mutate(mother_upi = chi_pad(as.character(patient_derived_upi_number))) %>% 
   mutate(mother_upi_check = chi_check(as.character(mother_upi))) 
 
+rm(data_vaccine)
+gc()
+
 tabyl(data_vaccine_COPS_temp$mother_upi_check)
 
 data_vaccine_COPS_temp_1 <- data_vaccine_COPS_temp %>% 
   mutate(vacc_occurence_date = as.Date(substr(vacc_occurence_date, 1, 10), "%Y-%m-%d")) %>% 
   filter(vacc_occurence_date >= vacc_start_date)
+
+rm(data_vaccine_COPS_temp)
+gc()
 
 chi_completeness_check <- data_vaccine_COPS_temp_1 %>% 
   mutate(week_ending = ceiling_date(vacc_occurence_date, unit = "week", change_on_boundary = F)) %>% 
@@ -61,6 +67,11 @@ data_vaccine_COPS_temp_2 <- data_vaccine_COPS_temp_1 %>%
   mutate(n_each_dose = as.numeric(n())) %>% 
   ungroup()
 
+#dates
+dataset_dates("Vaccines", data_vaccine_COPS_temp_1$vacc_occurence_date)
+rm(data_vaccine_COPS_temp_1)
+gc()
+
 # take out those that have the wrong number of records
 data_vaccine_COPS_for_fixing_1 <- data_vaccine_COPS_temp_2 %>% 
   filter(n_records > max(vacc_dose_number) | n_each_dose > 1)
@@ -92,10 +103,10 @@ data_vaccine_COPS <- data_vaccine_COPS_temp_2 %>%
               names_sep = "_") %>% 
   mutate_at(vars(matches("vacc_occurence_date")), as_date)
 
+rm(data_vaccine_COPS_temp_2)
+gc()
+
 write_rds(data_vaccine_COPS, paste0(folder_temp_data, "vaccine_cops.rds"), compress = "gz")
 
-#dates
-dataset_dates("Vaccines", data_vaccine_COPS_temp_1$vacc_occurence_date)
 
-rm(data_vaccine, data_vaccine_COPS_for_fixing_1, data_vaccine_COPS_temp_1, data_vaccine_COPS_temp_2,
-   data_vaccine_COPS, data_vaccine_COPS_temp, chi_completeness_check)
+rm(data_vaccine_COPS_for_fixing_1, data_vaccine_COPS, chi_completeness_check)

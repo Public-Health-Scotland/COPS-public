@@ -3,7 +3,7 @@ data_an_booking_temp_1 <-
   read_csv(
     paste0(
       folder_data,
-      "network_folder/COPS_Antenatalextract_11042022.csv"
+      "network_folder/COPS_Antenatalextract_25082022.csv"
     ),
     col_types = cols(
       .default = "?",

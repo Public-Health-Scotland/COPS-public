@@ -1,7 +1,7 @@
 ### Run this to update COPS cohort ###
 
 # Define path to scripts
-path_to_scripts <- file.path(paste(here::here(), "network_folder", "network_folder/", sep = "/"))
+path_to_scripts <- file.path(paste(here::here(), "network_folder", "network_folder Code/", sep = "/"))
  
 #Setup, read in packages and get folder directories
 source(file.path(paste0(path_to_scripts, "0b. setup.r")))
@@ -45,6 +45,9 @@ source(file.path(paste0(path_to_scripts, "5a match pregnancy data to records.r")
 source(file.path(paste0(path_to_scripts, "5b create new eave IDs.r"))) #Only run script 5b on a full run through when you expect new CHIs in the cohort
 source(file.path(paste0(path_to_scripts, "5c match on eave ID and qcovid data.r")))
 
+#Generate ethnicity lookup for COPS UPIs from vaccine ethnicity lookup
+source(file.path(paste0(path_to_scripts, "5z. vaccine ethnicity lookup.R")))
+
 #Determine authoritative final versions of variables for use in outputs
 source(file.path(paste0(path_to_scripts, "6a determine authoritative values.r")))
 
@@ -59,8 +62,11 @@ source(file.path(paste0(path_to_scripts, "6c extract-maternal-outcomes-data.R"))
 #Analyse maternal outcomes data
 source(file.path(paste0(path_to_scripts, "6d maternal-outcomes-tables.R")))
 
+# link to anomalies file
+source(file.path(paste0(path_to_scripts, "6e link on anomalies extract.r")))
+
 #Read out anonymised data to non-confi area
-source(file.path(paste0(path_to_scripts, "6e write anonymised files.r")))
+source(file.path(paste0(path_to_scripts, "6f write anonymised files.r")))
 
 # Produce infections comparator data
 source(file.path(paste0(path_to_scripts, "7a infections comparator data.r")))

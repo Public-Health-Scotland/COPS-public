@@ -20,9 +20,9 @@ qcovid2 <- qcovid2  %>% mutate(Qversion = "Jan2021")
 qcovid1 <- qcovid1  %>% mutate(Qversion = "March2020")
 
 #qcovid_demog1 <- qcovid1 %>% select(EAVE_LINKNO, datazone2011, simd2020v2_sc_quintile, Qversion) 
-#urban_rural <- read_sav("/network_folder/datazone2011_urban_rural_2016.sav")
+#urban_rural <- read_sav("network_folder/datazone2011_urban_rural_2016.sav")
 #urban_rural <- urban_rural %>% select(Datazone2011, UR6_2016, UR8_2016)
-#SPD <- readRDS("/network_folder/Scottish_Postcode_Directory_2021_2.rds")
+#SPD <- readRDS("network_folder/Scottish_Postcode_Directory_2021_2.rds")
 #SPD <- SPD %>% select(datazone2011, hb2019name) %>% unique()
 #qcovid_demog1 <- qcovid_demog1 %>% left_join(SPD) %>% left_join(urban_rural, by = c("datazone2011" = "Datazone2011")) %>%
 #  rename(ur6 = UR6_2016, ur8 = UR8_2016, hb = hb2019name,  simd = simd2020v2_sc_quintile) %>% select(-datazone2011)
@@ -104,7 +104,7 @@ write_rds(qcovid_recoded, paste0(folder_temp_data, "qcovid_recoded2.rds"))
 #Fetch extra smoking data
 smoking_data_temp_1 <-
   readRDS(
-    "network_folder/cohort_diags_2020-09-15_SK.rds"
+    "/network_folder/cohort_diags_2020-09-15_SK.rds"
   )  %>%
   distinct() %>% 
   filter(diag == "EAVE_NON_SMOKER" |
@@ -142,6 +142,12 @@ data_qcovid_smoking_demographics <- gp_demographics %>%
   left_join(data_qcovid_smoking, by=c("eave_linkno" =  "eave_linkno", "qversion" = "qversion"))  %>% 
   mutate(q_covid = 1) %>%
   retype(eave_ur6, eave_ur8)
+
+data_qcovid_smoking_demographics <- data_qcovid_smoking_demographics %>%
+  mutate(q_diag_diabetes_1 = case_when(is.na(q_diag_diabetes_1) ~ 0,
+                                       T ~ 1)) %>%
+  mutate(q_diag_diabetes_2 = case_when(is.na(q_diag_diabetes_2) ~ 0,
+                                       T ~ 1))
 
 write_rds(data_qcovid_smoking_demographics, paste0(folder_temp_data, "qcovid.rds"), compress = "gz")
 

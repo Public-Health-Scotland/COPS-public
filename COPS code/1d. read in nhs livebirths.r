@@ -17,7 +17,7 @@ data_nhs_live_births_historic <-
 #### Read in recent NHS Live Births ####
 data_nhs_live_births_recent <-
   read_csv(
-    paste0(folder_data, "network_folder/COPS_NHS_extract_Apr22_week2.csv"),
+    paste0(folder_data, "network_folder/COPS_NHS_extract_Aug22_week1.csv"),
     col_types = cols(
       .default = "?",
       # MothersDoB = col_datetime(format =
