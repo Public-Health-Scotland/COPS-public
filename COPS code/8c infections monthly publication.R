@@ -5,10 +5,14 @@ overall_testing_chi_completeness_perc <- readRDS(file.path(paste(folder_temp_dat
 chi_completeness_lfd_pos_perc <- readRDS(file.path(paste(folder_temp_data, "lfd_pos_chi_completeness_perc.rds", sep ="/")))
 chi_completeness_pcr_pos_perc <- readRDS(file.path(paste(folder_temp_data, "pcr_pos_chi_completeness_perc.rds", sep ="/")))
 
-
+#truncate infections at 30 april
+end_infect_date <- as.Date("2022-04-30")
+publication_latest_vacc_date <- as.Date("2022-04-30")#overwrite this variable for this one
 #### data updatedness tab ####
 
-fetus_level <- readRDS(paste0(folder_temp_data, "script6_baby_level_record_infection.rds")) %>% filter(x_full_cohort == T)
+fetus_level <- readRDS(paste0(folder_temp_data, "script6_baby_level_record_infection.rds")) %>% 
+  filter(x_full_cohort == T)
+
 fetus_level <-fetus_level %>% 
   rename(tests_mother_has_had_pcr_test_at_any_point = tests_mother_has_pos_test_at_any_point) %>%
   rename(tests_mother_positive_test_during_pregnancy_1 =tests_mother_value_positive_test_during_pregnancy_1, 
@@ -104,6 +108,7 @@ fetus_level_processed_long <- fetus_level_processed %>%
              values_to = "mother_positive_test_during_pregnancy") %>% 
   select(-indicator) %>% 
   filter(!is.na(mother_positive_test_during_pregnancy)) %>% 
+  filter(mother_positive_test_during_pregnancy <= end_infect_date) %>% 
   mutate(month = format(as.Date(mother_positive_test_during_pregnancy), "%Y-%m") ) %>% 
   mutate(vaccination_status_at_infection = vaccination_status(dose_1_vacc_occurence_date, dose_2_vacc_occurence_date, dose_3_vacc_occurence_date, mother_positive_test_during_pregnancy))
   
@@ -143,6 +148,7 @@ data_cases_by_week <- pregnancies %>%
   select(mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2) %>%
   pivot_longer(c(mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2)) %>%
   filter((!is.na(value))) %>%
+  filter(value <= publication_latest_vacc_date) %>%
   mutate(week_end = ceiling_date(value, unit = "week", change_on_boundary = F)) %>%  # Set the week start to Monday
   group_by(week_end) %>%
   summarise(number_of_cases = n()) %>%
@@ -182,7 +188,7 @@ cases_by_week_moving_notes <- c(cases_by_week_partial, "Grey shading indicates p
 
 subtitle <- paste0("Based on COPS pregnancy database updated in mid-", format(dates$read_in_date[dates$dataset == "Vaccines"], "%B %Y"), ", and cases of COVID-19 with date of onset up to ", format(publication_latest_vacc_date, "%d %B %Y"))
 
-data_cases_by_week_final %>% write_rds(paste0(folder_temp_data, "network_folder/cases_by_week.rds"))
+data_cases_by_week_final %>% write_rds(paste0(folder_temp_data, "infection_output_tables/cases_by_week.rds"))
 
 writeData(template, "N cases by week", subtitle, startCol = 1, startRow = 2, colNames = FALSE)
 writeData(template, "N cases by week", cases_by_week_moving_notes, startCol = 1, startRow = nrow(data_cases_by_week_final) + 7, colNames = FALSE)
@@ -210,15 +216,15 @@ data_cases_by_gestation <- pregnancies  %>%
   summarise(number_of_cases = n()) %>%
   ungroup() %>%
   left_join(month_lookup) %>% 
-  select(-month) %>% 
+  select(-month) %>% filter(!is.na(month_in_words)) %>%
   pivot_wider(names_from = "month_in_words", values_from = "number_of_cases") %>%
   adorn_totals(where = c("row", "col")) %>%
   mutate_all(~replace(., is.na(.), 0)) %>% 
-  mutate(admission = "1 - Total")
+  mutate(admission = "1 - Total") 
 
 ## read in hospital and ICU admissions by trimester calculated in 6d
-admissions_by_gestation <- readRDS(paste0(folder_temp_data, "network_folder/admissions_by_trimester.rds"))
-icu_by_gestation <- readRDS(paste0(folder_temp_data, "network_folder/icu_admissions_by_trimester.rds"))
+admissions_by_gestation <- readRDS(paste0(folder_temp_data, "infection_output_tables/admissions_by_trimester.rds"))
+icu_by_gestation <- readRDS(paste0(folder_temp_data, "infection_output_tables/icu_admissions_by_trimester.rds"))
 
 all_admissions_by_gestation <- admissions_by_gestation %>% 
   bind_rows(icu_by_gestation) %>% 
@@ -227,7 +233,7 @@ all_admissions_by_gestation <- admissions_by_gestation %>%
   pivot_wider(names_from = "month_in_words", values_from = "n_covid_adm") %>% 
   adorn_totals(where = "col")
 
-all_admissions_by_gestation %>% write_rds(paste0(folder_temp_data, "network_folder/all_admissions_by_gestation.rds"))
+all_admissions_by_gestation %>% write_rds(paste0(folder_temp_data, "infection_output_tables/all_admissions_by_gestation.rds"))
 
   
 cases_admissions_by_gestation <- all_admissions_by_gestation %>% 
@@ -249,7 +255,7 @@ cases_admissions_by_gestation_on_spine <- adm_gest_spine %>%
 #gestation_text_2 <- paste0("Due to the few number of weeks passed since " , format(publication_latest_vacc_date, "%B %Y"), " we are unlikely to have a complete count of the number of women in their first trimester during " 
 #                           , format(publication_latest_vacc_date, "%B %Y"))
 
-data_cases_by_gestation %>% write_rds(paste0(folder_temp_data, "network_folder/cases_by_gestation.rds"))
+data_cases_by_gestation %>% write_rds(paste0(folder_temp_data, "infection_output_tables/cases_by_gestation.rds"))
 
 writeData(template, "N cases by gest and adm status", subtitle, startCol = 1, startRow = 2, colNames = FALSE)
 #writeData(template, "N cases by gest and adm status", gestation_text_1, startCol = 1, startRow = 21, colNames = FALSE)
@@ -266,7 +272,7 @@ data_cases_by_gestation_severe_outcomes_tab <- pregnancies  %>%
   pivot_longer(c(mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2)) %>%
   filter((!is.na(value))) %>%
   mutate(trimester = trimester(est_conception_date, value)) %>% 
-  mutate(month = format(as.Date(value), "%Y-%m") ) 
+  mutate(month = format(as.Date(value), "%Y-%m") ) %>% filter(value <= publication_latest_vacc_date)
 
 # cases by month
 cases_by_gestation_severe_outcomes_tab_monthly <- data_cases_by_gestation_severe_outcomes_tab %>%
@@ -387,7 +393,7 @@ live_births <- live_births_after_infection %>%
 
 ## Maternal deaths
 
-maternal_deaths_by_gest <- readRDS(paste0(folder_temp_data, "network_folder/maternal_deaths_by_gestation.rds"))
+maternal_deaths_by_gest <- readRDS(paste0(folder_temp_data, "infection_output_tables/maternal_deaths_by_gestation.rds"))
 
 ## Pregnancies ending in stillbirth ##
 data_stillbirths_preg <- fetus_level_processed_long %>% 
@@ -674,9 +680,9 @@ all_serious_outcomes_by_gest <- all_serious_outcomes_wide %>%
 all_serious_outcomes_total <- all_serious_outcomes_wide %>% 
   filter(trimester == "Total" & indicator != "Total confirmed cases of COVID-19 in pregnancy")
 
-all_serious_outcomes_total %>% write_rds(paste0(folder_temp_data, "network_folder/infection_severe_outcomes_totals.rds"))
-all_serious_outcomes_by_gest %>% write_rds(paste0(folder_temp_data, "network_folder/infection_severe_outcomes_gest.rds"))
-live_births %>% write_rds(paste0(folder_temp_data, "network_folder/all_live_births_after_infection.rds"))
+all_serious_outcomes_total %>% write_rds(paste0(folder_temp_data, "infection_output_tables/infection_severe_outcomes_totals.rds"))
+all_serious_outcomes_by_gest %>% write_rds(paste0(folder_temp_data, "infection_output_tables/infection_severe_outcomes_gest.rds"))
+live_births %>% write_rds(paste0(folder_temp_data, "infection_output_tables/all_live_births_after_infection.rds"))
   
 ## read out into template 
 writeData(template, "Sev oc by gest NFP", subtitle, startCol = 1, startRow = 4, colNames = FALSE)
@@ -696,6 +702,7 @@ data_cases_by_vaccination_status_1 <- pregnancies %>%
   pivot_longer(c(mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2)) %>%
   filter((!is.na(value))) %>%
   mutate(positive_test_date = value) %>%
+  filter(positive_test_date <= end_infect_date) %>%
   mutate(vaccination_status_at_infection = vaccination_status(dose_1_vacc_occurence_date, dose_2_vacc_occurence_date, dose_3_vacc_occurence_date, positive_test_date)) %>% 
   mutate(month = format(as.Date(positive_test_date), "%Y-%m") ) %>%
   group_by(month, vaccination_status_at_infection) %>%
@@ -718,8 +725,8 @@ cases_by_vaccination_dec_onwards <- data_cases_by_vaccination_status_1 %>%
   
 
 ## read in hospital and ICU admissions by vaccination status calculated in 6d
-admissions_by_vaccination <- readRDS(paste0(folder_temp_data, "network_folder/admissions_by_vaccination.rds"))
-icu_by_vaccination <- readRDS(paste0(folder_temp_data, "network_folder/icu_admissions_by_vaccination.rds"))
+admissions_by_vaccination <- readRDS(paste0(folder_temp_data, "infection_output_tables/admissions_by_vaccination.rds"))
+icu_by_vaccination <- readRDS(paste0(folder_temp_data, "infection_output_tables/icu_admissions_by_vaccination.rds"))
 
 all_admissions_by_vaccination <- admissions_by_vaccination %>% 
   bind_rows(icu_by_vaccination) %>% 
@@ -741,7 +748,7 @@ cases_admissions_by_vaccination_on_spine <- adm_vacc_spine %>%
   left_join(cases_admissions_by_vaccination, by = c("vaccination_status_at_infection" = "vaccination_status_at_infection", "admission" = "admission"))  %>%
   mutate_all(~replace(., is.na(.), 0))
 
-cases_by_vaccination_dec_onwards %>% write_rds(paste0(folder_temp_data, "network_folder/cases_by_vaccination.rds"))
+cases_by_vaccination_dec_onwards %>% write_rds(paste0(folder_temp_data, "infection_output_tables/cases_by_vaccination.rds"))
 
 writeData(template, "N cases by vacc status", subtitle, startCol = 1, startRow = 2, colNames = FALSE)  
 writeData(template, "N cases by vacc status", select(cases_admissions_by_vaccination_on_spine, -c(vaccination_status_at_infection, admission)), startCol=3, startRow=5)
@@ -795,7 +802,7 @@ cases_by_vacc_severe_outcomes_tab <- data_cases_by_vacc_severe_outcomes_tab %>%
 
 ## Maternal deaths
 
-maternal_deaths_by_vacc <- readRDS(paste0(folder_temp_data, "network_folder/maternal_deaths_by_vaccination.rds"))
+maternal_deaths_by_vacc <- readRDS(paste0(folder_temp_data, "infection_output_tables/maternal_deaths_by_vaccination.rds"))
 
 ## Pregnancies ending in stillbirth ##
 # within 28 days
@@ -952,7 +959,7 @@ all_serious_outcomes_total_excel <- all_serious_outcomes_wide %>%
 ## read out into template 
 writeData(template, "Sev oc by vacc NFP", subtitle, startCol = 1, startRow = 4, colNames = FALSE)
 writeData(template, "Sev oc by vacc NFP", select(all_serious_outcomes_by_vacc, -c(vaccination_status_at_infection, indicator)), startCol=3, startRow=7)
-all_serious_outcomes_by_vacc %>% write_rds(paste0(folder_temp_data, "network_folder/infection_severe_outcomes_vacc.rds"))
+all_serious_outcomes_by_vacc %>% write_rds(paste0(folder_temp_data, "infection_output_tables/infection_severe_outcomes_vacc.rds"))
 
 #### Rate in Pregnancy ####
 months <- pregnancies %>% 
@@ -979,7 +986,7 @@ for(i in 1:nrow(months)){
   months_total_pregnant[i,]$number_pregnancies <- number[1,]$n
 }
 
-write_rds(months_total_pregnant, paste0(folder_temp_data, "network_folder/total_preg_by_month.rds"))
+write_rds(months_total_pregnant, paste0(folder_temp_data, "infection_output_tables/total_preg_by_month.rds"))
 
 # count onset of covid cases in each month
 months_numerators <- pregnancies %>%
@@ -987,7 +994,7 @@ months_numerators <- pregnancies %>%
   select(mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2) %>%
   pivot_longer(cols = everything()) %>%
   select(value) %>%
-  filter(!is.na(value)) %>%
+  filter(!is.na(value)) %>% filter(value <= end_infect_date) %>%
   mutate(month = format(as.Date(value), "%Y-%m")) %>%
   select(month) %>%
   group_by(month) %>%
@@ -1018,13 +1025,28 @@ total_pregnancies <- pregnancies %>%
   pivot_longer(cols = total_pregnancies:percent, names_to = "indicator", values_to = paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))) %>% 
   select(-indicator)
 
+#truncated rate to April 22 (when testing pretty much stopped)
+#total_pregnancies_to_Apr22 <-  pregnancies %>%
+#  filter(est_conception_date <= as.Date("2022-04-30")) %>%
+#  group_by(mother_upi) %>%
+#  mutate(mother_total_pregnancies = n()) %>%
+#  mutate(mother_tested_positive_during_pregnancy = max_(mother_tested_positive_during_pregnancy)) %>%
+#  slice(1) %>%
+#  ungroup() %>%
+#  summarise(total_pregnancies_to_Apr22 = n(),
+#            total_covid_in_pregnancies_to_Apr22 = sum_(mother_tested_positive_during_pregnancy)) %>%
+#  mutate(percent = total_covid_in_pregnancies / total_pregnancies * 100000) %>%
+#  pivot_longer(cols = total_pregnancies:percent, names_to = "indicator", values_to = paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))) %>% 
+#  select(-indicator)
+##
+
 data_rate_in_pregnancy = data_rate_in_pregnancy %>%
-  bind_cols(total_pregnancies)
+  bind_cols(total_pregnancies) #%>% bind_cols(total_pregnancies_to_Apr22 )
 
 rate_in_pregnancy_text_1 <- paste0("*The total for this row is the total number of women pregnant at any point from 1st March 2020 to ", format(publication_latest_vacc_date, "%d %B %Y"), " inclusive.")
 rate_in_pregnancy_text_2 <- paste0("**The total for this row is the total number of women with COVID-19 in pregnancy with date of onset from 1st March 2020 to ", format(publication_latest_vacc_date, "%d %B %Y"), " inclusive.")
 
-data_rate_in_pregnancy %>% write_rds(paste0(folder_temp_data, "network_folder/rate_in_pregnancy.rds"))
+data_rate_in_pregnancy %>% write_rds(paste0(folder_temp_data, "infection_output_tables/rate_in_pregnancy.rds"))
 
 writeData(template, "Rate in pregnancy", subtitle, startCol = 1, startRow = 2, colNames = FALSE) 
 writeData(template, "Rate in pregnancy", rate_in_pregnancy_text_1, startCol = 1, startRow = 12, colNames = FALSE)
@@ -1035,6 +1057,17 @@ rm(months, months_numerators, months_total_pregnant)
 
 
 #### Rate in Pregnancy by Age ####
+
+# "months" is deleted above (and didn't contain maternal_age_group) so...
+# need to recreate this and add in maternal_age_group for next step to work?
+months <- pregnancies %>% 
+  filter(overall_outcome != "Ongoing" & pregnancy_end_date >= as.Date("2020-03-01")) %>% 
+  filter(pregnancy_end_date <= publication_latest_vacc_date ) %>%  
+  mutate(month = format(as.Date(pregnancy_end_date), "%Y-%m")) %>% 
+  mutate(month_start = floor_date(pregnancy_end_date, unit = "month")) %>% 
+  count(month, month_start, maternal_age_group) %>% 
+  select(month, month_start, maternal_age_group)
+
 # skeleton using expand grid
 months <- expand.grid(months$month_start, months$maternal_age_group) %>% distinct() %>%
   rename(month = Var1, maternal_age_group = Var2) %>%
@@ -1067,7 +1100,7 @@ months_numerators <- pregnancies %>%
   select(maternal_age_group, mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2) %>%
   pivot_longer(cols = starts_with("mother_positive_test")) %>%
   select(maternal_age_group, value) %>%
-  filter(!is.na(value)) %>%
+  filter(!is.na(value)) %>% filter(value <= end_infect_date) %>%
   mutate(month = format(as.Date(value), "%Y-%m")) %>%
   select(maternal_age_group, month) %>%
   group_by(maternal_age_group, month) %>%
@@ -1116,6 +1149,7 @@ data_rate_in_pregnancy_by_age_rate_total <- data_rate_in_pregnancy_by_age %>%
   mutate(maternal_age_group = "9 Total") %>%
   select(maternal_age_group, everything())
 
+
 data_rate_in_pregnancy_by_age_rate <- data_rate_in_pregnancy_by_age_rate %>%
   bind_rows(data_rate_in_pregnancy_by_age_rate_total)
 
@@ -1131,20 +1165,41 @@ total_pregnancies_by_age <- pregnancies %>%
   adorn_totals(where="row") %>%
   mutate(percent = total_covid_in_pregnancies / total_pregnancies * 100000)
 
+##truncated totals
+#total_pregnancies_by_age_to_Apr22 <- pregnancies %>%
+#  filter(est_conception_date <= as.Date("2022-04-30")) %>%
+#  group_by(mother_upi) %>%
+#  mutate(mother_total_pregnancies_to_Apr22 = n()) %>%
+#  mutate(mother_tested_positive_during_pregnancy = max_(mother_tested_positive_during_pregnancy)) %>%
+#  slice(1) %>%
+#  ungroup() %>%
+#  group_by(maternal_age_group) %>%
+#  summarise(total_pregnancies_to_Apr22 = n(),
+#            total_covid_in_pregnancies = sum_(mother_tested_positive_during_pregnancy)) %>%
+#  adorn_totals(where="row") %>%
+#  mutate(percent = total_covid_in_pregnancies / total_pregnancies_to_Apr22 * 100000)
+
 data_rate_in_pregnancy_by_age_pregnancies <- data_rate_in_pregnancy_by_age_pregnancies %>%
   bind_cols(total_pregnancies_by_age$total_pregnancies) %>%
+ # bind_cols(total_pregnancies_by_age_to_Apr22$total_pregnancies_to_Apr22) %>%
   mutate_all(~replace(., is.na(.), 0))
 names(data_rate_in_pregnancy_by_age_pregnancies)[length(names(data_rate_in_pregnancy_by_age_pregnancies))]<- paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words)) 
+#names(data_rate_in_pregnancy_by_age_pregnancies)[length(names(data_rate_in_pregnancy_by_age_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", "Apr 2022") 
 
 data_rate_in_pregnancy_by_age_cases <- data_rate_in_pregnancy_by_age_cases %>%
   bind_cols(total_pregnancies_by_age$total_covid_in_pregnancies) %>%
+#  bind_cols(total_pregnancies_by_age_to_Apr22$total_covid_in_pregnancies) %>%
   mutate_all(~replace(., is.na(.), 0))
 names(data_rate_in_pregnancy_by_age_cases)[length(names(data_rate_in_pregnancy_by_age_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words)) 
+#names(data_rate_in_pregnancy_by_age_cases)[length(names(data_rate_in_pregnancy_by_age_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", "Apr 2022") 
 
 data_rate_in_pregnancy_by_age_rate <- data_rate_in_pregnancy_by_age_rate %>%
   bind_cols(total_pregnancies_by_age$percent) %>%
+ # bind_cols(total_pregnancies_by_age_to_Apr22$percent) %>%
   mutate_all(~replace(., is.na(.), 0))
 names(data_rate_in_pregnancy_by_age_rate)[length(names(data_rate_in_pregnancy_by_age_rate))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words)) 
+#names(data_rate_in_pregnancy_by_age_rate)[length(names(data_rate_in_pregnancy_by_age_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", "Apr 2022") 
+
 
 rate_in_pregnancy_text_1_plural <- paste0("*The total for these rows is the total number of women pregnant at any point from 1st March 2020 to ", format(publication_latest_vacc_date, "%d %B %Y"), " inclusive.")
 rate_in_pregnancy_text_2_plural <- paste0("**The total for these rows is the total number of women with COVID-19 in pregnancy with date of onset from 1st March 2020 to ", format(publication_latest_vacc_date, "%d %B %Y"), " inclusive.")
@@ -1156,7 +1211,7 @@ writeData(template, "Rate by age", select(data_rate_in_pregnancy_by_age_pregnanc
 writeData(template, "Rate by age", select(data_rate_in_pregnancy_by_age_cases, -maternal_age_group), startCol= 2, startRow= 17, colNames = F)
 writeData(template, "Rate by age", select(data_rate_in_pregnancy_by_age_rate, -maternal_age_group),        startCol= 2, startRow= 27, colNames = F)
 
-data_rate_in_pregnancy_by_age_rate  %>% write_rds(paste0(folder_temp_data, "network_folder/rate_in_pregnancy_age.rds"))
+data_rate_in_pregnancy_by_age_rate  %>% write_rds(paste0(folder_temp_data, "infection_output_tables/rate_in_pregnancy_age.rds"))
 
 rm(months, months_numerators, months_total_pregnant)
 
@@ -1193,7 +1248,7 @@ months_numerators <- pregnancies %>%
   select(simd, mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2) %>%
   pivot_longer(cols = starts_with("mother_positive_test")) %>%
   select(simd, value) %>%
-  filter(!is.na(value)) %>%
+  filter(!is.na(value)) %>% filter(value <= end_infect_date) %>%
   mutate(month = format(as.Date(value), "%Y-%m")) %>%
   select(simd, month) %>%
   group_by(simd, month) %>%
@@ -1254,20 +1309,43 @@ total_pregnancies_by_simd <- pregnancies %>%
   adorn_totals(where="row") %>%
   mutate(percent = total_covid_in_pregnancies / total_pregnancies * 100000)
 
+#truncated totals
+#total_pregnancies_by_simd_to_Apr22 <- pregnancies %>%
+#  filter(est_conception_date <= as.Date("2022-04-30")) %>%
+#  group_by(mother_upi) %>%
+#  mutate(mother_total_pregnancies = n()) %>%
+#  mutate(mother_tested_positive_during_pregnancy = max_(mother_tested_positive_during_pregnancy)) %>%
+#  slice(1) %>%
+#  ungroup() %>%
+#  group_by(simd) %>%
+#  summarise(total_pregnancies = n(),
+#            total_covid_in_pregnancies = sum_(mother_tested_positive_during_pregnancy)) %>%
+#  adorn_totals(where="row") %>%
+#  mutate(percent = total_covid_in_pregnancies / total_pregnancies * 100000)
+
+##bind totals
 data_rate_in_pregnancy_by_simd_rate <- data_rate_in_pregnancy_by_simd_rate %>%
   bind_rows(data_rate_in_pregnancy_by_simd_rate_total)
 
+
 data_rate_in_pregnancy_by_simd_pregnancies <- data_rate_in_pregnancy_by_simd_pregnancies %>%
-  bind_cols(total_pregnancies_by_simd$total_pregnancies)
+  bind_cols(total_pregnancies_by_simd$total_pregnancies) #%>%
+#  bind_cols(total_pregnancies_by_simd_to_Apr22 $total_pregnancies)  
 names(data_rate_in_pregnancy_by_simd_pregnancies)[length(names(data_rate_in_pregnancy_by_simd_pregnancies))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))
+#names(data_rate_in_pregnancy_by_simd_pregnancies)[length(names(data_rate_in_pregnancy_by_simd_pregnancies))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", "Apr 2022")
 
 data_rate_in_pregnancy_by_simd_cases <- data_rate_in_pregnancy_by_simd_cases %>%
-  bind_cols(total_pregnancies_by_simd$total_covid_in_pregnancies)
+  bind_cols(total_pregnancies_by_simd$total_covid_in_pregnancies)# %>%
+ # bind_cols(total_pregnancies_by_simd_to_Apr22$total_covid_in_pregnancies) 
 names(data_rate_in_pregnancy_by_simd_cases)[length(names(data_rate_in_pregnancy_by_simd_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))
+#names(data_rate_in_pregnancy_by_simd_cases)[length(names(data_rate_in_pregnancy_by_simd_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", "Apr 2022")
 
 data_rate_in_pregnancy_by_simd_rate <- data_rate_in_pregnancy_by_simd_rate %>%
-  bind_cols(total_pregnancies_by_simd$percent)
+  bind_cols(total_pregnancies_by_simd$percent) #%>%
+ # bind_cols(total_pregnancies_by_simd_to_Apr22$percent) 
 names(data_rate_in_pregnancy_by_simd_rate)[length(names(data_rate_in_pregnancy_by_simd_rate))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words)) 
+#names(data_rate_in_pregnancy_by_simd_rate)[length(names(data_rate_in_pregnancy_by_simd_rate))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", "Apr 2022") 
+
 
 writeData(template, "Rate by SIMD", subtitle, startCol = 1, startRow = 2, colNames = FALSE) 
 writeData(template, "Rate by SIMD", rate_in_pregnancy_text_1_plural, startCol = 1, startRow = 37, colNames = FALSE)
@@ -1276,7 +1354,7 @@ writeData(template, "Rate by SIMD", select(data_rate_in_pregnancy_by_simd_pregna
 writeData(template, "Rate by SIMD", select(data_rate_in_pregnancy_by_simd_cases, -simd), startCol= 2, startRow= 16, colNames = F)
 writeData(template, "Rate by SIMD", select(data_rate_in_pregnancy_by_simd_rate, -simd),        startCol= 2, startRow= 25, colNames = F)
 
-data_rate_in_pregnancy_by_simd_rate  %>% write_rds(paste0(folder_temp_data, "network_folder/rate_in_pregnancy_simd.rds"))
+data_rate_in_pregnancy_by_simd_rate  %>% write_rds(paste0(folder_temp_data, "infection_output_tables/rate_in_pregnancy_simd.rds"))
 
 rm(months, months_numerators, months_total_pregnant)
 
@@ -1314,7 +1392,7 @@ months_numerators <- pregnancies %>%
   select(ethnicity_desc_reporting, mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2) %>%
   pivot_longer(cols = starts_with("mother_positive_test")) %>%
   select(ethnicity_desc_reporting, value) %>%
-  filter(!is.na(value)) %>%
+  filter(!is.na(value)) %>%  filter(value <= end_infect_date) %>%
   mutate(month = format(as.Date(value), "%Y-%m")) %>%
   select(ethnicity_desc_reporting, month) %>%
   group_by(ethnicity_desc_reporting, month) %>%
@@ -1372,17 +1450,20 @@ total_pregnancies_by_ethnicity <- pregnancies %>%
   adorn_totals(where="row") %>%
   mutate(percent = total_covid_in_pregnancies / total_pregnancies * 100000)
 
+#add total and truncated totals
 data_rate_in_pregnancy_by_ethnicity_pregnancies <- data_rate_in_pregnancy_by_ethnicity_pregnancies %>%
-  bind_cols(total_pregnancies_by_ethnicity$total_pregnancies)
+  bind_cols(total_pregnancies_by_ethnicity$total_pregnancies) 
+ 
 names(data_rate_in_pregnancy_by_ethnicity_pregnancies)[length(names(data_rate_in_pregnancy_by_ethnicity_pregnancies))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))
 
 data_rate_in_pregnancy_by_ethnicity_cases <- data_rate_in_pregnancy_by_ethnicity_cases %>%
-  bind_cols(total_pregnancies_by_ethnicity$total_covid_in_pregnancies)
+  bind_cols(total_pregnancies_by_ethnicity$total_covid_in_pregnancies) 
 names(data_rate_in_pregnancy_by_ethnicity_cases)[length(names(data_rate_in_pregnancy_by_ethnicity_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))
 
 data_rate_in_pregnancy_by_ethnicity_rate <- data_rate_in_pregnancy_by_ethnicity_rate %>%
-  bind_cols(total_pregnancies_by_ethnicity$percent)
+  bind_cols(total_pregnancies_by_ethnicity$percent) 
 names(data_rate_in_pregnancy_by_ethnicity_rate)[length(names(data_rate_in_pregnancy_by_ethnicity_rate))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))
+
 
 writeData(template, "Rate by Ethnicity", subtitle, startCol = 1, startRow = 2, colNames = FALSE) 
 writeData(template, "Rate by Ethnicity", rate_in_pregnancy_text_1_plural, startCol = 1, startRow = 34, colNames = FALSE)
@@ -1391,7 +1472,7 @@ writeData(template, "Rate by Ethnicity", select(data_rate_in_pregnancy_by_ethnic
 writeData(template, "Rate by Ethnicity", select(data_rate_in_pregnancy_by_ethnicity_cases, -ethnicity_desc_reporting), startCol= 2, startRow= 15, colNames = F)
 writeData(template, "Rate by Ethnicity", select(data_rate_in_pregnancy_by_ethnicity_rate, -ethnicity_desc_reporting),  startCol= 2, startRow= 23, colNames = F)
 
-data_rate_in_pregnancy_by_ethnicity_rate  %>% write_rds(paste0(folder_temp_data, "network_folder/rate_in_pregnancy_ethnicity.rds"))
+data_rate_in_pregnancy_by_ethnicity_rate  %>% write_rds(paste0(folder_temp_data, "infection_output_tables/rate_in_pregnancy_ethnicity.rds"))
 
 rm(months, months_numerators, months_total_pregnant)
 
@@ -1399,7 +1480,7 @@ rm(months, months_numerators, months_total_pregnant)
 #### Rate in Pregnancy by NHS Board ####
 # We use an alternative method for generating our months spine for this section. This ensures we don't miss out any combinations where there are low numbers.
 # We may want to use this method for the other sections, too, just in case. 
-months <- pregnancies_weeks_spine <- seq(as.Date("2020-03-01"), max_(pregnancies$mother_earliest_positive_test_during_pregnancy), by="months") %>%
+months <- pregnancies_weeks_spine <- seq(as.Date("2020-03-01"), publication_latest_vacc_date, by="months") %>%
   as.data.frame() %>%
   rename("month_start" = ".")
   
@@ -1434,7 +1515,7 @@ months_numerators <- pregnancies %>%
   select(hbres, mother_positive_test_during_pregnancy_1, mother_positive_test_during_pregnancy_2) %>%
   pivot_longer(cols = starts_with("mother_positive_test")) %>%
   select(hbres, value) %>%
-  filter(!is.na(value)) %>%
+  filter(!is.na(value)) %>% filter(value <= end_infect_date) %>%
   mutate(month = format(as.Date(value), "%Y-%m")) %>%
   select(hbres, month) %>%
   group_by(hbres, month) %>%
@@ -1499,12 +1580,14 @@ total_pregnancies_by_hbres <- pregnancies %>%
   adorn_totals(where="row") %>%
   mutate(percent = total_covid_in_pregnancies / total_pregnancies * 100000)
 
+
 data_rate_in_pregnancy_by_hbres_pregnancies <- data_rate_in_pregnancy_by_hbres_pregnancies %>%
-  bind_cols(total_pregnancies_by_hbres$total_pregnancies)
+  bind_cols(total_pregnancies_by_hbres$total_pregnancies) 
 names(data_rate_in_pregnancy_by_hbres_pregnancies)[length(names(data_rate_in_pregnancy_by_hbres_pregnancies))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words))
 
 data_rate_in_pregnancy_by_hbres_cases <- data_rate_in_pregnancy_by_hbres_cases %>%
   bind_cols(total_pregnancies_by_hbres$total_covid_in_pregnancies)
+ 
 names(data_rate_in_pregnancy_by_hbres_cases)[length(names(data_rate_in_pregnancy_by_hbres_cases))]<-paste0("Total ", first(month_lookup$month_in_words), " to ", last(month_lookup$month_in_words)) 
 
 data_rate_in_pregnancy_by_hbres_rate <- data_rate_in_pregnancy_by_hbres_rate %>%
@@ -1518,7 +1601,7 @@ writeData(template, "Rate by NHS Board", select(data_rate_in_pregnancy_by_hbres_
 writeData(template, "Rate by NHS Board", select(data_rate_in_pregnancy_by_hbres_cases, -hbres), startCol= 2, startRow= 25, colNames = F)
 writeData(template, "Rate by NHS Board", select(data_rate_in_pregnancy_by_hbres_rate, -hbres),  startCol= 2, startRow= 43, colNames = F)
 
-data_rate_in_pregnancy_by_hbres_rate  %>% write_rds(paste0(folder_temp_data, "network_folder/rate_in_pregnancy_hbres.rds"))
+data_rate_in_pregnancy_by_hbres_rate  %>% write_rds(paste0(folder_temp_data, "infection_output_tables/rate_in_pregnancy_hbres.rds"))
 
 rm(months, months_numerators, months_total_pregnant)
 
@@ -1527,10 +1610,10 @@ rm(months, months_numerators, months_total_pregnant)
 #### Severe outcomes rates ####
 
 # READ IN ####
-all_numerators <- readRDS(paste0(folder_temp_data, "network_folder/infection_severe_outcomes_totals.rds")) %>% 
+all_numerators <- readRDS(paste0(folder_temp_data, "infection_output_tables/infection_severe_outcomes_totals.rds")) %>% 
   select(indicator, Total)
 
-live_births <- readRDS(paste0(folder_temp_data, "network_folder/all_live_births_after_infection.rds")) %>% 
+live_births <- readRDS(paste0(folder_temp_data, "infection_output_tables/all_live_births_after_infection.rds")) %>% 
   select(indicator, Total)
 
 live_births_28_days <- live_births$Total[live_births$indicator == "live birth within 28 days of infection"]
@@ -1671,4 +1754,4 @@ writeData(template, "Severe outcomes tot NFP", low_apgar_after_covid, startCol =
 writeData(template, "Severe outcomes tot NFP", very_low_apgar_within_28_days, startCol = 5, startRow = 62, colNames = FALSE)
 writeData(template, "Severe outcomes tot NFP", very_low_apgar_after_covid, startCol = 5, startRow = 63, colNames = FALSE)
 
-saveWorkbook(template, (paste0(folder_outputs, "network_folder/Infection_output_", Sys.Date(), ".xlsx")), overwrite = TRUE)
+saveWorkbook(template, (paste0(folder_outputs, "Infections/Infection_output_", Sys.Date(), ".xlsx")), overwrite = TRUE)
