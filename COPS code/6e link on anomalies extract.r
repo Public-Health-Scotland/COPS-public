@@ -62,6 +62,9 @@ df_anomalies <-
   ungroup() %>% 
   mutate(anomaly_id = row_number())
 
+write_rds(df_anomalies, paste0(folder_temp_data, "anomalies_df.rds"), compress = "gz")
+
+
 df_anomalies_limited <- df_anomalies %>% 
   select(cardriss_baby_upi, cardriss_mother_upi, date_end_of_pregnancy, sex, multiple_pregnancy, anom_records_in_pregnancy, anomalies, anomaly_id, birth_year_of_registration, birth_registration_district, birth_entry_number) %>% 
   mutate(cardriss_baby_upi = chi_pad(cardriss_baby_upi)) %>% 
