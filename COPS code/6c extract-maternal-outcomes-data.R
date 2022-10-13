@@ -1,6 +1,8 @@
+# SETUP ####
+# source("Analysis code and metadata/COPS Code/0b. setup.r")
 library(haven) # required to process SICSAG SPSS data
 
-start_date <-  dmy("01/05/2019") 
+start_date <-  dmy("01/01/2015") 
 end_date <- today() 
 
 
@@ -26,7 +28,31 @@ vte_codes <- c("I260", "I269",
                "I636",
                "I676",
                "O225",
-               "O873")
+               "O873",
+               # below additions to VTE codes specified by RW on 10/12/2021
+               "O032", "O037",
+               "O042", "O047",
+               "O052", "O057",
+               "O062", "O067",
+               "O072", "O077"
+                )
+
+obs_haem_codes <- c("O441", 
+                    "O450", "O458", "O459",
+                    "O460", "O468", "O469",
+                    "O670", "O678", "O679", "O694",
+                    "O720", "O721", "O722", "O723")
+
+early_preg_bleeding_codes <- c("O031", "O036",
+                               "O041", "O046",
+                               "O051", "O056",
+                               "O061", "O066",
+                               "O071", "O076",
+                               "O081",
+                               "O200", "O208", "O209")
+
+dissem_intravascular_coag_codes <- c("D65")
+
 
 acute_covid19_codes <- c("U071", "U072", "U075")
 history_of_covid19_codes <- c("U073", "U074")
@@ -34,11 +60,14 @@ adverse_covid19_vax_event_codes <- c("U077")
 
 all_codes_list <- list(hypertensive_codes = hypertensive_codes,
                        vte_codes = vte_codes,
+                       obs_haem_codes = obs_haem_codes,
+                       early_preg_bleeding_codes = early_preg_bleeding_codes,
+                       dissem_intravascular_coag_codes = dissem_intravascular_coag_codes,
                        acute_covid19_codes = acute_covid19_codes,
                        history_of_covid19_codes = history_of_covid19_codes,
                        adverse_covid19_vax_event_codes = adverse_covid19_vax_event_codes)
 
-all_codes <- as.character(unlist(all_codes_list))
+all_codes <- as.character(unlist(all_codes_list)) %>% unique()
 
 
 
@@ -86,6 +115,7 @@ df_eps <- SMR01 %>%
 df_eps <- df_eps %>% 
   add_flag_columns(all_codes_list) %>% 
   mutate(flag_any = if_any(starts_with("flag"))) %>% # flag for if any condition flag is TRUE
+  mutate(flag_any_bleeding = if_any(c(flag_obs_haem, flag_early_preg_bleeding,  flag_dissem_intravascular_coag))) %>% # flag for if any of the bleeding condition flags are TRUE
   # additional flags indicating if COVID19 was main condition or not
   mutate(flag_acute_covid19_main = is_code_in_codevector(main_condition, acute_covid19_codes)) %>% 
   mutate(flag_acute_covid19_other = if_else(flag_acute_covid19 == TRUE & flag_acute_covid19_main == FALSE, TRUE, FALSE))
@@ -155,6 +185,7 @@ df_eps <- SMR02 %>%
 df_eps <- df_eps %>% 
   add_flag_columns(all_codes_list) %>% 
   mutate(flag_any = if_any(starts_with("flag"))) %>% # flag for if any condition flag is TRUE
+  mutate(flag_any_bleeding = if_any(c(flag_obs_haem, flag_early_preg_bleeding,  flag_dissem_intravascular_coag))) %>% # flag for if any of the bleeding condition flags are TRUE
   # additional flags indicating if COVID19 was main condition or not
   mutate(flag_acute_covid19_main = is_code_in_codevector(main_condition, acute_covid19_codes)) %>% 
   mutate(flag_acute_covid19_other = if_else(flag_acute_covid19 == TRUE & flag_acute_covid19_main == FALSE, TRUE, FALSE)) %>% 
@@ -197,7 +228,7 @@ write_rds(df_smr02, paste0(folder_temp_data, "smr02_flagged_episodes.rds"), comp
 
 
 # SICSAG ####
-sicsag_dir <- "/network_folder/ICU_extracts/"
+sicsag_dir <- "//conf/ICU_extracts/"
 sicsag_latest <- sort(dir(sicsag_dir)[str_starts(dir(sicsag_dir), "episode")], decreasing = TRUE)[[1]]
 
 message("using SICSAG extract created on ", file.info(paste0(sicsag_dir, sicsag_latest))$ctime)
