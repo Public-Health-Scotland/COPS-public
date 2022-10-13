@@ -60,6 +60,7 @@ tests_lfd <- dbGetQuery(
   test_result = 'POSITIVE'
   and date_specimen >= '2022-01-06' ") %>%
   distinct()
+
 tests_lfd <- tests_lfd %>% 
   mutate(date_ecoss_specimen = as.Date(date_specimen)) %>%
   select(-date_specimen) %>%
@@ -133,7 +134,7 @@ template <- loadWorkbook(paste0(folder_templates, "Infection CHI check.xlsx"))
 writeData(template, "Infection CHI completeness", chi_completeness_check, colNames = FALSE, startCol = 1, startRow = 2)
 insertPlot(template, "Infection CHI completeness", width = 6, startCol = 6, startRow = 2,
            height = 3.5, fileType = "png", units = "in")
-saveWorkbook(template, (paste0(folder_outputs, "network_folder/Infections_CHI_check_", Sys.Date(), ".xlsx")), overwrite =TRUE)
+saveWorkbook(template, (paste0(folder_outputs, "Infections/Infections_CHI_check_", Sys.Date(), ".xlsx")), overwrite =TRUE)
 
 
 #### Number of neonates testing positive using only testing data ####
@@ -171,6 +172,9 @@ neonate_tests <- tests %>%
   slice(1)
 
 number_positive_neonates <- nrow(neonate_tests)
+number_positive_neonates_apr22 <- neonate_tests %>% filter(date_ecoss_specimen <= as.Date("2022-04-30") ) %>% nrow()
+
+saveRDS(number_positive_neonates_apr22, paste0(folder_temp_data, "number_neonatal_infections_testing_only_apr22.rds"))
 saveRDS(number_positive_neonates, paste0(folder_temp_data, "number_neonatal_infections_testing_only.rds"))
 
 #### select only tests for members of our cohort ####
@@ -336,7 +340,10 @@ linked_IDs_long <-  linked_IDS_only %>%
 
 #join detials for all linked tests
 details <- left_join(linked_IDs_long, tests_detail)
+details
+
 details <- details %>% pivot_wider(id_cols = c(upi, covid_infection, index_date, index_specimen_id),
+                                   values_fn = length,
                         values_from = c( "specimen_id" ,"date_ecoss_specimen" , 
                                         "test_type","sgene_classification", "original_test_class" ,
                                         "x_symptomatic"  ,"wgs_sequence_id" ,  "variant_of_interest"  ,
