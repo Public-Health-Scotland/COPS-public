@@ -234,8 +234,8 @@ fetus_level_temp_12 <- fetus_level_temp_11 %>%
                                          T ~ NA_character_)) %>% 
   mutate(x_overall_smoking_status = first_(c(x_booking_smoking_status, 
                                              x_gp_smoking_status))) %>% 
-  mutate(x_overall_smoking_status = if_else((x_gp_smoking_status == "smoker" | x_gp_smoking_status == "ex-smoker")
-                                            & x_booking_smoking_status == "non-smoker", "ex-smoker", x_overall_smoking_status))
+  mutate(x_overall_smoking_status = case_when ( (x_gp_smoking_status == "smoker" | x_gp_smoking_status == "ex-smoker") & x_booking_smoking_status == "non-smoker" ~ "ex-smoker",
+                                                T ~ x_overall_smoking_status))
 
 tabyl(fetus_level_temp_12$x_booking_smoking_status)
 tabyl(fetus_level_temp_12$x_gp_smoking_status)
@@ -351,15 +351,66 @@ fetus_level_temp_28 <- fetus_level_temp_18 %>%
 
 #### Assign infant death status ####
 data_infant_deaths_triplicate <- read_rds(paste0(folder_temp_data, "infant_deaths.rds")) %>% 
-  select(nrs_triplicate_id, date_of_baby_death) %>% 
+  select(
+    nrs_triplicate_id,
+    date_of_baby_death,
+    underlying_cause_of_baby_death,
+    cause_of_baby_death_0,
+    cause_of_baby_death_1,
+    cause_of_baby_death_2,
+    cause_of_baby_death_3,
+    cause_of_baby_death_4,
+    cause_of_baby_death_5,
+    cause_of_baby_death_6,
+    cause_of_baby_death_7,
+    cause_of_baby_death_8,
+    cause_of_baby_death_9
+  ) %>% 
   filter(nrs_triplicate_id != "NA_NA_NA") %>%
   filter(nrs_triplicate_id != "0_0_0") %>%
-  rename(triplicate_date_of_baby_death = date_of_baby_death)
+  rename(triplicate_date_of_baby_death = date_of_baby_death) %>%
+  rename(triplicate_underlying_cause_of_baby_death = underlying_cause_of_baby_death) %>%
+  rename(triplicate_cause_of_baby_death_0 = cause_of_baby_death_0) %>%
+  rename(triplicate_cause_of_baby_death_1 = cause_of_baby_death_1) %>%
+  rename(triplicate_cause_of_baby_death_2 = cause_of_baby_death_2) %>%
+  rename(triplicate_cause_of_baby_death_3 = cause_of_baby_death_3) %>%
+  rename(triplicate_cause_of_baby_death_4 = cause_of_baby_death_4) %>%
+  rename(triplicate_cause_of_baby_death_5 = cause_of_baby_death_5) %>%
+  rename(triplicate_cause_of_baby_death_6 = cause_of_baby_death_6) %>%
+  rename(triplicate_cause_of_baby_death_7 = cause_of_baby_death_7) %>%
+  rename(triplicate_cause_of_baby_death_8 = cause_of_baby_death_8) %>%
+  rename(triplicate_cause_of_baby_death_9 = cause_of_baby_death_9)
+  
 
 data_infant_deaths_chi <- read_rds(paste0(folder_temp_data, "infant_deaths.rds")) %>% 
-  select(chi, date_of_baby_death) %>% 
+  select(
+    chi,
+    date_of_baby_death,
+    underlying_cause_of_baby_death,
+    cause_of_baby_death_0,
+    cause_of_baby_death_1,
+    cause_of_baby_death_2,
+    cause_of_baby_death_3,
+    cause_of_baby_death_4,
+    cause_of_baby_death_5,
+    cause_of_baby_death_6,
+    cause_of_baby_death_7,
+    cause_of_baby_death_8,
+    cause_of_baby_death_9
+  ) %>% 
   filter(!is.na(chi)) %>%
-  rename(chi_date_of_baby_death = date_of_baby_death)
+  rename(chi_date_of_baby_death = date_of_baby_death) %>%
+  rename(chi_underlying_cause_of_baby_death = underlying_cause_of_baby_death) %>%
+  rename(chi_cause_of_baby_death_0 = cause_of_baby_death_0) %>%
+  rename(chi_cause_of_baby_death_1 = cause_of_baby_death_1) %>%
+  rename(chi_cause_of_baby_death_2 = cause_of_baby_death_2) %>%
+  rename(chi_cause_of_baby_death_3 = cause_of_baby_death_3) %>%
+  rename(chi_cause_of_baby_death_4 = cause_of_baby_death_4) %>%
+  rename(chi_cause_of_baby_death_5 = cause_of_baby_death_5) %>%
+  rename(chi_cause_of_baby_death_6 = cause_of_baby_death_6) %>%
+  rename(chi_cause_of_baby_death_7 = cause_of_baby_death_7) %>%
+  rename(chi_cause_of_baby_death_8 = cause_of_baby_death_8) %>%
+  rename(chi_cause_of_baby_death_9 = cause_of_baby_death_9)
 
 fetus_level_temp_19 <- fetus_level_temp_28 %>% 
   mutate(x_nrs_lb_triplicate_id = case_when(!is.na(nrslb_year_of_registration) & !is.na(nrslb_registration_district) & !is.na(nrslb_entry_number) ~
@@ -370,8 +421,46 @@ fetus_level_temp_20 <- fetus_level_temp_19 %>%
   left_join(data_infant_deaths_chi, by = c("baby_upi" = "chi")) %>%
   rowwise() %>%
   mutate(x_date_of_baby_death = first_(c(triplicate_date_of_baby_death, chi_date_of_baby_death))) %>%
+  mutate(x_underlying_cause_of_baby_death = first_(c(triplicate_underlying_cause_of_baby_death, chi_underlying_cause_of_baby_death))) %>%
+  mutate(x_cause_of_baby_death_0 = first_(c(triplicate_cause_of_baby_death_0, chi_cause_of_baby_death_0))) %>%
+  mutate(x_cause_of_baby_death_1 = first_(c(triplicate_cause_of_baby_death_1, chi_cause_of_baby_death_1))) %>%
+  mutate(x_cause_of_baby_death_2 = first_(c(triplicate_cause_of_baby_death_2, chi_cause_of_baby_death_2))) %>%
+  mutate(x_cause_of_baby_death_3 = first_(c(triplicate_cause_of_baby_death_3, chi_cause_of_baby_death_3))) %>%
+  mutate(x_cause_of_baby_death_4 = first_(c(triplicate_cause_of_baby_death_4, chi_cause_of_baby_death_4))) %>%
+  mutate(x_cause_of_baby_death_5 = first_(c(triplicate_cause_of_baby_death_5, chi_cause_of_baby_death_5))) %>%
+  mutate(x_cause_of_baby_death_6 = first_(c(triplicate_cause_of_baby_death_6, chi_cause_of_baby_death_6))) %>%
+  mutate(x_cause_of_baby_death_7 = first_(c(triplicate_cause_of_baby_death_7, chi_cause_of_baby_death_7))) %>%
+  mutate(x_cause_of_baby_death_8 = first_(c(triplicate_cause_of_baby_death_8, chi_cause_of_baby_death_8))) %>%
+  mutate(x_cause_of_baby_death_9 = first_(c(triplicate_cause_of_baby_death_9, chi_cause_of_baby_death_9))) %>%
   ungroup() %>%
-  select(-c(triplicate_date_of_baby_death, chi_date_of_baby_death))
+  select(
+    -c(
+      triplicate_date_of_baby_death,
+      triplicate_underlying_cause_of_baby_death,
+      triplicate_cause_of_baby_death_0,
+      triplicate_cause_of_baby_death_1,
+      triplicate_cause_of_baby_death_2,
+      triplicate_cause_of_baby_death_3,
+      triplicate_cause_of_baby_death_4,
+      triplicate_cause_of_baby_death_5,
+      triplicate_cause_of_baby_death_6,
+      triplicate_cause_of_baby_death_7,
+      triplicate_cause_of_baby_death_8,
+      triplicate_cause_of_baby_death_9,
+      chi_date_of_baby_death,
+      chi_underlying_cause_of_baby_death,
+      chi_cause_of_baby_death_0,
+      chi_cause_of_baby_death_1,
+      chi_cause_of_baby_death_2,
+      chi_cause_of_baby_death_3,
+      chi_cause_of_baby_death_4,
+      chi_cause_of_baby_death_5,
+      chi_cause_of_baby_death_6,
+      chi_cause_of_baby_death_7,
+      chi_cause_of_baby_death_8,
+      chi_cause_of_baby_death_9
+    )
+  )
 
 rm(data_infant_deaths_chi, data_infant_deaths_triplicate)
 
@@ -553,6 +642,12 @@ fetus_level <- fetus_level_temp_27 %>%
 fetus_level <- fetus_level %>%
   mutate(chi_validity = chi_check(mother_upi))
 
+#Sort SIMD NAs ####
+fetus_level <- fetus_level %>% 
+  mutate(x_simd = case_when(x_simd == "1" ~ "1=most deprived", 
+                            x_simd == "5" ~ "5=least deprived", 
+                            x_simd == "9" ~ NA_character_, 
+                            TRUE ~ x_simd))
 
 #### Write fetus-level files ####
 fetus_level %>% write_rds(paste0(folder_temp_data, "script6_baby_level_record.rds"), compress = "gz")
