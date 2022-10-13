@@ -1,5 +1,6 @@
 #### Read in vaccine data ####
-data_vaccine <- read.csv("/network_folder/dash_extract_Cohorts_preg_data_2022-04-13.csv")
+data_vaccine <- read.csv("/network_folder/dash_extract_Cohorts_preg_data_2022-0-25.csv")
+
 
 data_vaccine_processed <- data_vaccine %>% 
   mutate(upi = chi_pad(as.character(patient_derived_upi_number))) %>% 
@@ -41,11 +42,11 @@ count_by_age_group <- data_vaccine_by_age %>%
   bind_rows(overall_count_by_dose_num) %>% 
   arrange(age_group)
 #save for use in later checks
-saveRDS(overall_count_by_dose_num, paste0(folder_temp_data, "network_folder/compare_overall_count_by_dose_num.rds"))
-saveRDS(count_by_age_group, paste0(folder_temp_data, "network_folder/compare_count_by_age_group.rds"))
+saveRDS(overall_count_by_dose_num, paste0(folder_temp_data, "vaccine_output_tables/compare_overall_count_by_dose_num.rds"))
+saveRDS(count_by_age_group, paste0(folder_temp_data, "vaccine_output_tables/compare_count_by_age_group.rds"))
 ### population estimates
 
-pop_raw <- read_rds("/network_folder/DataZone2011_pop_est_2011_2020.rds")
+pop_raw <- read_rds("//conf/linkage/output/lookups/Unicode/Populations/Estimates/DataZone2011_pop_est_2011_2020.rds")
 population <- pop_raw %>%
   filter(year == 2020) %>%
   select(sex, starts_with("age")) %>%
@@ -63,7 +64,7 @@ count <- data_vaccine_by_age %>%
 population_coverage <- count %>% 
   mutate(percent_coverage = n/population[[1,1]])
 
-saveRDS(population_coverage, paste0(folder_temp_data, "network_folder/population_coverage.rds"))
+saveRDS(population_coverage, paste0(folder_temp_data, "vaccine_output_tables/population_coverage.rds"))
 
 #### create title ####
 dates <- readRDS(paste0(folder_temp_data, "all_dates.rds"))
@@ -77,4 +78,4 @@ writeData(template, "Vaccination comparison data", select(count_by_age_group, -c
 writeData(template, "Vaccination comparison data", select(population_coverage, -c(vacc_dose_number, n)), startCol = 2, startRow = 46, colNames = FALSE)
 
 #### Save out workbook ####
-saveWorkbook(template, (paste0(folder_outputs, "network_folder/Vaccination_comparison_data_", Sys.Date(), ".xlsx")), overwrite =TRUE)
+saveWorkbook(template, (paste0(folder_outputs, "Vaccines/Vaccination_comparison_data_", Sys.Date(), ".xlsx")), overwrite =TRUE)
