@@ -1,5 +1,6 @@
 # SETUP ####
-# REMOVED FOR PUBLIC RELEASE
+#removed for public release. ##
+
 
 # READ IN DATA ####
 cohort <- read_rds(file.path(folder_temp_data, "script6b_pregnancy_level_record.rds")) %>% 
@@ -8,7 +9,7 @@ cohort <- read_rds(file.path(folder_temp_data, "script6b_pregnancy_level_record.
 
 end_date <- today() 
 
-
+infections_end <- as.Date("2022-04-30")
 ## SMR01 ####
 df_smr01 <- read_rds(paste0(folder_temp_data, "smr01_flagged_stays.rds"))
 
@@ -59,7 +60,8 @@ infections_during_pregnancy <- cohort %>%
   select(mother_upi, pregnancy_id, est_conception_date, pregnancy_end_date, starts_with("mother_positive_test_during_pregnancy_"), ends_with("vacc_occurence_date")) %>%
   pivot_longer(starts_with("mother_positive_test_during_pregnancy_"), names_to = "covid_positive_test_num", values_to = "covid_positive_test_date", names_prefix = "mother_positive_test_during_pregnancy_") %>%
   filter(is.na(covid_positive_test_date) == FALSE) %>%
-  arrange(mother_upi, covid_positive_test_num)
+  arrange(mother_upi, covid_positive_test_num) %>%
+  filter(is.na(covid_positive_test_date) | covid_positive_test_date <= infections_end)
 
 # join on the admissions data and flag if admissions are COVID associated....
 # note: there are rows for each combination of test and admission -- e.g. if a mother had two +ve tests during a pregnancy and three admissions, they will have 6 rows
@@ -114,7 +116,7 @@ admissions_monthly_by_trimester <- infections_during_pregnancy_flagged_admission
   mutate(admission = "2 - any hospital admission")
 
 # read out for use in infections output script
-admissions_monthly_by_trimester %>% write_rds(paste0(folder_temp_data, "network_folder/admissions_by_trimester.rds"))
+admissions_monthly_by_trimester %>% write_rds(paste0(folder_temp_data, "infection_output_tables/admissions_by_trimester.rds"))
 
 
 ## admissions by vaccination status ####
@@ -134,7 +136,7 @@ admissions_monthly_by_vaccination <-  infections_during_pregnancy_flagged_admiss
   mutate(admission = "2 - any hospital admission")
 
 # read out for use in infections output script
-admissions_monthly_by_vaccination %>% write_rds(paste0(folder_temp_data, "network_folder/admissions_by_vaccination.rds"))
+admissions_monthly_by_vaccination %>% write_rds(paste0(folder_temp_data, "infection_output_tables/admissions_by_vaccination.rds"))
   
 
 # COVID RELATED SICSAG ####
@@ -178,7 +180,7 @@ icu_monthly_by_trimester <- infections_during_pregnancy_flagged_icu_monthly %>%
   mutate(admission = "3 - ICU")
 
 # read out for use in infections output script
-icu_monthly_by_trimester %>% write_rds(paste0(folder_temp_data, "network_folder/icu_admissions_by_trimester.rds"))
+icu_monthly_by_trimester %>% write_rds(paste0(folder_temp_data, "infection_output_tables/icu_admissions_by_trimester.rds"))
 
 
 ## admissions by vaccination status ####
@@ -198,7 +200,7 @@ icu_monthly_by_vaccination <-  infections_during_pregnancy_flagged_icu_monthly %
   mutate(admission = "3 - ICU")
 
 # read out for use in infections output script
-icu_monthly_by_vaccination %>% write_rds(paste0(folder_temp_data, "network_folder/icu_admissions_by_vaccination.rds"))
+icu_monthly_by_vaccination %>% write_rds(paste0(folder_temp_data, "infection_output_tables/icu_admissions_by_vaccination.rds"))
   
 
 # COVID RELATED DEATHS ####
@@ -223,7 +225,7 @@ infections_during_pregnancy_flagged_death <- infections_during_pregnancy %>%
   mutate(trimester = trimester(est_conception_date, covid_positive_test_date)) %>% 
   mutate(vaccination_status_at_infection = vaccination_status(dose_1_vacc_occurence_date, dose_2_vacc_occurence_date, dose_3_vacc_occurence_date, covid_positive_test_date))
   
-infections_during_pregnancy_flagged_death %>% write_rds(paste0(folder_temp_data, "network_folder/infections_during_pregnancy_flagged_death.rds"))
+infections_during_pregnancy_flagged_death %>% write_rds(paste0(folder_temp_data, "infection_output_tables/infections_during_pregnancy_flagged_death.rds"))
 
 
 # monthly infections in pregnancy with COVID associated death
@@ -330,7 +332,7 @@ mat_subsequent_deaths_trimester <- infections_during_pregnancy_flagged_death %>%
 
 # 
 mat_subsequent_deaths_trimester %>% 
-  bind_rows(mat_covid_associated_deaths_trimester) %>% write_rds(paste0(folder_temp_data, "network_folder/maternal_deaths_by_gestation.rds"))
+  bind_rows(mat_covid_associated_deaths_trimester) %>% write_rds(paste0(folder_temp_data, "infection_output_tables/maternal_deaths_by_gestation.rds"))
 
 
 # maternal deaths by vaccination status
@@ -403,7 +405,7 @@ mat_subsequent_deaths_vacc <- infections_during_pregnancy_flagged_death %>%
 
 # 
 mat_subsequent_deaths_vacc %>% 
-  bind_rows(mat_covid_associated_deaths_vacc) %>% write_rds(paste0(folder_temp_data, "network_folder/maternal_deaths_by_vaccination.rds"))
+  bind_rows(mat_covid_associated_deaths_vacc) %>% write_rds(paste0(folder_temp_data, "infection_output_tables/maternal_deaths_by_vaccination.rds"))
 
 
 
@@ -475,7 +477,7 @@ admission_monthly_by_trimester <- vaccine_during_pregnancy_flagged_admission_mon
 
 admission_monthly_by_trimester %>% 
   rename(Stage_of_Preg = trimester, month_vaccine = month) %>% 
-  write_rds(paste0(folder_temp_data, "network_folder/admission_by_trimester.rds"))
+  write_rds(paste0(folder_temp_data, "vaccine_output_tables/admission_by_trimester.rds"))
 
 
 
@@ -496,7 +498,7 @@ admission_monthly_by_product <- vaccine_during_pregnancy_flagged_admission_month
 
 admission_monthly_by_product %>% 
   rename(month_vaccine = month) %>% 
-  write_rds(paste0(folder_temp_data, "network_folder/admission_by_product.rds"))  
+  write_rds(paste0(folder_temp_data, "vaccine_output_tables/admission_by_product.rds"))  
 
 # VACCINE RELATED SICSAG ####
 vaccine_associated_icu_days <- 21
@@ -534,7 +536,7 @@ icu_monthly_by_trimester <- vaccine_during_pregnancy_flagged_icu_monthly %>%
 
 icu_monthly_by_trimester %>% 
   rename(Stage_of_Preg = trimester, month_vaccine = month) %>% 
-  write_rds(paste0(folder_temp_data, "network_folder/icu_by_trimester.rds"))
+  write_rds(paste0(folder_temp_data, "vaccine_output_tables/icu_by_trimester.rds"))
 
 
 
@@ -555,7 +557,7 @@ icu_monthly_by_product <- vaccine_during_pregnancy_flagged_icu_monthly %>%
 
 icu_monthly_by_product %>% 
   rename(month_vaccine = month) %>% 
-  write_rds(paste0(folder_temp_data, "network_folder/icu_by_product.rds"))
+  write_rds(paste0(folder_temp_data, "vaccine_output_tables/icu_by_product.rds"))
 
 
 # VACCINE RELATED MATERNAL DEATHS ####
@@ -640,7 +642,7 @@ vacc_subsequent_death_monthly_by_trimester <- vaccinations_during_pregnancy_flag
 vacc_associated_death_monthly_by_trimester %>% 
   bind_rows(vacc_subsequent_death_monthly_by_trimester) %>% 
   rename(Stage_of_Preg = trimester, month_vaccine = month) %>% 
-   write_rds(paste0(folder_temp_data, "network_folder/maternal_deaths_by_trimester.rds"))
+   write_rds(paste0(folder_temp_data, "vaccine_output_tables/maternal_deaths_by_trimester.rds"))
 
 
 # monthly deaths in pregnancy by product ####
@@ -715,6 +717,6 @@ vacc_subsequent_death_monthly_by_product <- vaccinations_during_pregnancy_flagge
 vacc_associated_death_monthly_by_product %>% 
   bind_rows(vacc_subsequent_death_monthly_by_product) %>% 
   rename(month_vaccine = month) %>% 
-  write_rds(paste0(folder_temp_data, "network_folder/maternal_deaths_by_product.rds"))
+  write_rds(paste0(folder_temp_data, "vaccine_output_tables/maternal_deaths_by_product.rds"))
 
 
