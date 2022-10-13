@@ -9,6 +9,9 @@ output:
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = FALSE)
+
+  publication_latest_vacc_date <- lubridate::ymd("2022-04-30") 
+ 
 ```
 
 ```{r functions, include = FALSE}
@@ -91,21 +94,26 @@ live_baby_outcomes <- readRDS(file.path(paste(infection_output_tables_path, "all
 neonates_covid_rates <- readRDS(file.path(paste(neonates_infection_output_tables_path, "neonates_covid_rates.rds", sep ="/")))
 neonates_age_diagnosis <- readRDS(file.path(paste(neonates_infection_output_tables_path, "baby_age_at_diagnosis.rds", sep ="/")))
 neonates_maternal_vaccine_status <- readRDS(file.path(paste(neonates_infection_output_tables_path, "maternal_vaccination_status_long.rds", sep ="/")))
-number_pos_neonates_testing <- readRDS(file.path(paste(folder_temp_data, "number_neonatal_infections_testing_only.rds", sep ="/")))
 
-pregnancies <- readRDS(paste0(folder_temp_data, "script6b_pregnancy_level_record.rds")) %>% filter(full_cohort == T)
+number_positive_neonates_apr22 <- readRDS(paste0(folder_temp_data, "number_neonatal_infections_testing_only_apr22.rds"))
+
+pregnancies <- readRDS(paste0(folder_temp_data, "script6b_pregnancy_level_record.rds")) %>% filter(full_cohort == T) %>%
+  filter(est_conception_date <= as.Date("2022-04-30"))
 baby_level <- readRDS(paste0(folder_temp_data, "script6_baby_level_record_infection.rds")) %>% filter(x_full_cohort == T) %>%
-    mutate(baby_chi_validity = chi_check(baby_upi))
+    mutate(baby_chi_validity = chi_check(baby_upi))%>%
+  filter(x_est_conception_date <= as.Date("2022-04-30"))
 
 
 ```
 
 ```{r obtain_required_numbers, include = FALSE}
-numbers_base <- baby_level %>% 
-  select(pregnancy_id, mother_upi, baby_upi, x_pregnancy_end_date, outcome, chi_validity, baby_chi_validity) %>% 
+
+##edit for August 2022 update only - limit everything in this rmd to end april
+numbers_base <- baby_level %>% filter(x_est_conception_date <= as.Date("2022-04-30")) %>% 
+  select(pregnancy_id, mother_upi, baby_upi, x_pregnancy_end_date, outcome, chi_validity, baby_chi_validity, x_est_conception_date) %>% 
   mutate(x_pregnancy_end_date = if_else(is.na(x_pregnancy_end_date), Sys.Date(), x_pregnancy_end_date)) %>% 
   mutate(outcome = if_else(x_pregnancy_end_date > publication_latest_vacc_date, "Ongoing", outcome)) %>% 
-  filter(chi_validity == "Valid CHI")
+  filter(chi_validity == "Valid CHI") 
 
 n_preg_valid_chi <- numbers_base %>% 
   group_by(pregnancy_id) %>% 
@@ -119,24 +127,27 @@ n_wom_valid_chi <- numbers_base %>%
 
 n_comp_preg_valid_chi <- numbers_base %>%
   filter(outcome != "Ongoing") %>% 
+  filter(x_pregnancy_end_date <= as.Date("2022-04-30")) %>% 
   group_by(pregnancy_id) %>% 
   slice(1) %>%
   nrow()     
 
 n_ongoing_preg_valid_chi <- numbers_base %>%
-  filter(outcome == "Ongoing") %>% 
+  filter(outcome == "Ongoing" | x_pregnancy_end_date > as.Date("2022-04-30")) %>% 
   group_by(pregnancy_id) %>% 
   slice(1) %>%
   nrow()     
 
 n_deliveries_valid_chi <- numbers_base %>%
   filter((outcome == "Live birth" & baby_chi_validity == "Valid CHI") | outcome == "Stillbirth") %>% 
+    filter(x_pregnancy_end_date <= as.Date("2022-04-30")) %>% 
   group_by(pregnancy_id) %>% 
   slice(1) %>%
   nrow()   
 
 n_live_births_valid_chi <- numbers_base %>%
   filter(outcome == "Live birth" & baby_chi_validity == "Valid CHI") %>% 
+    filter(x_pregnancy_end_date <= as.Date("2022-04-30")) %>% 
   group_by(baby_upi) %>% 
   slice(1) %>%
   nrow()    
@@ -150,6 +161,7 @@ num_infections_total <- cases_by_week %>%
 # Total pregnancies in which a woman tested positive in Scotland from the start of the pandemic
 preg_infections_total <- pregnancies  %>%
   filter(mother_tested_positive_during_pregnancy == 1) %>% 
+  filter(mother_earliest_positive_test_during_pregnancy <= as.Date("2022-04-30")) %>%
   select(pregnancy_id, mother_upi) %>%
   group_by(pregnancy_id, mother_upi) %>%
   slice(1) %>%
@@ -158,6 +170,7 @@ preg_infections_total <- pregnancies  %>%
 # Total women who tested positive during pregnancy
 preg_women_total <- pregnancies  %>%
   filter(mother_tested_positive_during_pregnancy == 1) %>% 
+   filter(mother_earliest_positive_test_during_pregnancy <= as.Date("2022-04-30")) %>%
   select(pregnancy_id, mother_upi) %>%
   group_by(mother_upi) %>%
   slice(1) %>%
@@ -404,6 +417,8 @@ In brief, up to 5 January 2022, confirmed cases of COVID-19 were identified by a
 
 This change reflects a change to the [national guidance on testing](https://www.gov.scot/news/self-isolation-and-testing-changes/) and is in line with the approach to reporting of confirmed cases used [across Public Health Scotland](https://publichealthscotland.scot/news/2022/january/further-changes-to-covid-19-reporting/). Up to and including 5 January 2022, anyone with a positive LFD test result was asked to take a follow up PCR test to confirm the result. From 6 January 2022 onwards, asymptomatic individuals with a positive LFD test result were no longer asked to take a follow up PCR test - the positive LFD test result was considered sufficient to indicate confirmed infection for isolation and contact tracing purposes. 
 
+From mid April https://www.gov.scot/publications/test-protect-transition-plan/ asymptomatic individuals were no longer encouraged to test, except in certain circumstance; and from May 2022 onwards, testing was limited mainly to healthcare settings. For this reason, this final report on infections in pregnancy only reports on case numbers to the end of April 2022. 
+
 For any individual, the date that their first positive test sample was collected has been taken as the date of onset of their first episode of COVID-19. Subsequent positive tests taken <90 days after a first positive test have been discounted. To allow for the possibility of re-infection, if an individual has a positive test taken ≥90 days after their first positive test, this has been taken as the date of onset of their second episode of COVID-19, with the clock then reset as for the first episode, and so on.
 
 Confirmed cases of COVID-19 have been identified as occurring in pregnancy if the date of onset of the episode of COVID-19 occurred at any point from the date of conception (at 2^+0^ weeks gestation) to the date the pregnancy ended, inclusive. To minimise the chance that we have identified a case of COVID-19 as occurring ‘in pregnancy’ when it actually occurred after a pregnancy has ended, we have discounted any cases with date of onset at 44^+0^ weeks gestation or over. It is very likely that these women have completed their pregnancy, but the end of pregnancy record has not yet been received by PHS.
@@ -518,7 +533,7 @@ As at <span custom-style="highlight">`r publication_date_fmt_early_mid_late(publ
 
 Among these live births, we have identified a total of <span custom-style="highlight">`r format(total_neonates_covid_positive, big.mark=",")`</span> confirmed cases of COVID-19 in neonates from 1 March 2020 up to <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>.
 
-Using viral PCR and LFD testing data alone (i.e. all test records, not just records that have linked to the COPS study database), shows that there has been an overall total of <span custom-style="highlight">`r format(number_pos_neonates_testing, big.mark=",")`</span> confirmed cases of COVID-19 in neonates between 1 March 2020 and <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>. There are various reasons why confirmed infections identified through testing data only may not be identified through the COPS study database. For example, if the date of birth is incorrect in the testing data, the infection may be incorrectly assigned to the neonatal period, or if the baby's CHI number is not available within the testing data, their record will not be linked to their COPS record. Overall, however, this shows that the number of neonatal infections identified in the COPS database is very close to the number identified through testing data alone.
+Using viral PCR and LFD testing data alone (i.e. all test records, not just records that have linked to the COPS study database), shows that there has been an overall total of <span custom-style="highlight">`r format(number_positive_neonates_apr22, big.mark=",")`</span> confirmed cases of COVID-19 in neonates between 1 March 2020 and <span custom-style="highlight">`r publication_date_fmt(publication_latest_vacc_date)`</span>. There are various reasons why confirmed infections identified through testing data only may not be identified through the COPS study database. For example, if the date of birth is incorrect in the testing data, the infection may be incorrectly assigned to the neonatal period, or if the baby's CHI number is not available within the testing data, their record will not be linked to their COPS record. Overall, however, this shows that the number of neonatal infections identified in the COPS database is very close to the number identified through testing data alone.
 
 Detailed data from the COPS study is provided in a supporting Excel file that accompanies this publication, and is also available through the [Scottish Health and Social Care Open data platform](https://www.opendata.nhs.scot/).
 
