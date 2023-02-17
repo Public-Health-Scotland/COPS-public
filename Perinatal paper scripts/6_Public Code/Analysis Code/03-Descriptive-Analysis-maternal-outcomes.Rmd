@@ -1,0 +1,615 @@
+---
+title: "Maternal Outcomes Descriptives"
+author: "Laura Lindsay"
+date: "10/10/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, out.width = "100%")
+library(tidyverse)
+library(lubridate)
+library(kableExtra)
+library(dplyr)
+opts <- options(knitr.kable.NA = "")
+
+folder_scripts <- ""
+
+# source(paste0(folder_scripts, "/00-setup.R"))
+
+colname_vaccination <- c("", rep(c("Vaccinated", "%", "Contemporary Controls", "%"), 4))
+colname_infection <- c("", "Infected", "%", "Contemporary Controls", "%")
+
+
+```
+
+```{r descriptive_functions}
+
+# function that gets sociodemographic information for each 
+get_characteristics_descriptives_maternal_outcomes <- function(data, exposure = "vaccination", control = "contemporary") {
+  
+  if(exposure == "vaccination") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(vacc_or_unvacc == "vacc", "exposed", "unexposed"))
+    
+  } else if(exposure == "infection") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(inf_or_uninf == "inf", "exposed", "unexposed"))
+    
+  }
+  
+  table <- bind_rows(
+        
+    # n pregnancies 
+    
+    data %>%
+      group_by(pregnancy_id) %>% 
+      slice(1) %>%
+      ungroup %>%
+      group_by(exposure) %>%
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_preg:"),
+    
+    # n births 
+    
+    data %>%
+      group_by(exposure) %>% 
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_births:"), 
+    
+    # median age (at conception)
+    
+    data %>%
+      group_by(exposure) %>%
+      summarise(median_age = median(mother_age_at_conception), 
+                min_age = min(mother_age_at_conception), 
+                max_age = max(mother_age_at_conception)) %>%
+      pivot_longer(!exposure, names_to = "age") %>%
+      pivot_wider(names_from = exposure, values_from = value) %>% 
+      mutate(rowname = paste0(age, ":")) %>%
+      select(-age), 
+    
+    # deprivation
+    data %>%
+      group_by(exposure, simd) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("deprivation:", simd)), 
+    
+    # ethnicity
+    data %>%
+      group_by(exposure, ethnicity_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("ethnicity:", ethnicity_cat)),
+    
+    # urban/rural status
+    data %>%
+      group_by(exposure, UR6_categories) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("UR6_categories:", UR6_categories)),
+    
+    # clinical vulnerability
+    data %>%
+      group_by(exposure, cv_clinical_vulnerability_category) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("clinical_vulnerability:", cv_clinical_vulnerability_category)),
+    
+    # diabetes
+    data %>%
+      group_by(exposure, diabetes_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("diabetes:", diabetes_cat)),
+    
+    # smoking
+    data %>%
+      group_by(exposure, smoking_status) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("smoking_status:", smoking_status)),
+    
+    # bmi
+    data %>%
+      group_by(exposure, bmi_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("bmi:", bmi_cat)), 
+    
+    # imputed gestation 
+    data %>%
+      group_by(exposure, gestation_ascertainment) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("imputed_gestation:", gestation_ascertainment)), 
+    
+    # parity 
+    data %>%
+      mutate(smr02_total_previous_pregnancies = ifelse(smr02_total_previous_pregnancies == 99, NA, smr02_total_previous_pregnancies), 
+             smr02_previous_spontaneous_abortions = ifelse(smr02_previous_spontaneous_abortions == 99, NA, smr02_previous_spontaneous_abortions), 
+             smr02_previous_theraputic_abortions = ifelse(smr02_previous_theraputic_abortions == 99, NA, smr02_previous_theraputic_abortions), 
+             parity = smr02_total_previous_pregnancies - (smr02_previous_spontaneous_abortions + smr02_previous_theraputic_abortions), 
+             parity_cat = case_when(parity == 0 ~ "0", 
+                                    parity >= 1 ~"1+", 
+                                    T ~ "Unknown/missing")) %>%
+      group_by(exposure, parity_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("parity:", parity_cat))
+
+  )
+  
+  table <- table %>% 
+    select(rowname, exposed, unexposed) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category")) %>%
+    group_by(category) %>%
+    mutate(percentage = round(as.numeric(exposed)/sum(as.numeric(exposed), na.rm = T)*100, 1), 
+           percentage_control = round(as.numeric(unexposed)/sum(as.numeric(unexposed), na.rm = T)*100, 1))
+  
+  if(exposure == "vaccination") {
+    
+    table <- table %>% rename(vacc = "exposed")
+    
+  } else if(exposure == "infection") {
+    
+    table <- table %>% rename(inf = "exposed")
+  }
+  
+  if(control == "historical") {
+    
+    table <- table %>% select(category, sub_category, unexposed, percentage_control) %>% 
+      rename(historic = "unexposed", percentage_historic = "percentage_control")
+    
+  } else if(control == "contemporary" ) {
+    
+    table <- table %>% rename(contemporary = "unexposed", percentage_contemporary = "percentage_control")
+    
+  }
+  
+  return(table)
+  
+}
+
+
+
+get_exposure_numbers_maternal_outcomes <- function(data, cohort = "7", exposure = "vaccination") {
+  
+  dose_1_valid <- c("dose 1 & dose 2","dose 1 & dose 2 & dose 3", "dose 1 & dose 3", "only dose 1")
+  dose_2_valid <- c("dose 2 & dose 3", "only dose 2", "dose 2 & dose 3 & dose 4")
+  dose_3_valid <- c("dose 3 & dose 4","only dose 3")
+  dose_4_valid <- c("only dose 4")
+  
+  one_dose_in_exposure <- c("only dose 1", "only dose 2", "only dose 3", "only dose 4")
+  two_dose_in_exposure <- c("dose 1 & dose 2", "dose 1 & dose 3", "dose 2 & dose 3", "dose 3 & dose 4")
+  three_dose_in_exposure <- c("dose 1 & dose 2 & dose 3", "dose 2 & dose 3 & dose 4")
+
+    if(exposure == "vaccination") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(vacc_or_unvacc == "vacc", "exposed", "unexposed"), 
+             gest_days_at_exposure = case_when(perinatal_vaccination_dose_information %in% dose_1_valid ~ 
+                                                 difftime(dose_1_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                               perinatal_vaccination_dose_information %in% dose_2_valid ~ 
+                                                 difftime(dose_2_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                               perinatal_vaccination_dose_information %in% dose_3_valid ~ 
+                                                 difftime(dose_3_vacc_occurence_date, est_conception_date, units = c("days")) + 14,
+                                               perinatal_vaccination_dose_information %in% dose_4_valid ~ 
+                                                 difftime(dose_4_vacc_occurence_date, est_conception_date, units = c("days")) + 14), 
+             gest_weeks_at_exposure = as.numeric(floor(gest_days_at_exposure/7)), 
+             gest_weeks_at_exposure_cat = case_when(between(gest_weeks_at_exposure, 2, 19) ~ "0-19 weeks", 
+                                                    gest_weeks_at_exposure < 2 ~ "Preconception",
+                                                    gest_weeks_at_exposure >= 20 ~ ">=20"), 
+             first_dose = case_when(perinatal_vaccination_dose_information %in% dose_1_valid ~ "Dose 1", 
+                                    perinatal_vaccination_dose_information %in% dose_2_valid ~ "Dose 2",
+                                    perinatal_vaccination_dose_information %in% dose_3_valid ~ "Dose 3",
+                                    perinatal_vaccination_dose_information %in% dose_4_valid ~ "Dose 4"), 
+             no_of_doses_in_exposure = case_when(perinatal_vaccination_dose_information %in% one_dose_in_exposure ~ "1", 
+                                                 perinatal_vaccination_dose_information %in% two_dose_in_exposure ~ "2+", 
+                                                 perinatal_vaccination_dose_information %in% three_dose_in_exposure ~ "2+"))
+    
+    table = bind_rows(
+      
+      # gestation at first vaccination
+      data %>%
+        group_by(exposure, gest_weeks_at_exposure_cat) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("gestation_at_first_vax:", gest_weeks_at_exposure_cat)),
+      
+      # dose number of first vaccine given within exposure period
+      data %>% 
+        group_by(exposure, first_dose) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("dose_number_at_first_vax:", first_dose)),
+      
+      # number of vaccinations given in exposure period 
+      data %>% 
+        group_by(exposure, no_of_doses_in_exposure) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("no_of_vax_given:", no_of_doses_in_exposure))
+    )
+    
+  } else if(exposure == "infection") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(inf_or_uninf == "inf", "exposed", "unexposed"),
+             gest_weeks_at_exposure_cat = case_when(between(perinatal_gestation_at_index_date, 2, 19) ~ "0-19 weeks", 
+                                                    perinatal_gestation_at_index_date < 2 ~ "Preconception",
+                                                    perinatal_gestation_at_index_date >= 20 ~ ">=20"), 
+             infection1_during_exposure_period = case_when(difftime(index_date_covid_infection_1, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_1 <= perinatal_vaccination_timing_period_end & 
+                                                         index_date_covid_infection_1 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0),
+             infection2_during_exposure_period = case_when(difftime(index_date_covid_infection_2, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_2 <= perinatal_vaccination_timing_period_end & 
+                                                         index_date_covid_infection_2 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0), 
+             infection3_during_exposure_period = case_when(difftime(index_date_covid_infection_3, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_3 <= perinatal_vaccination_timing_period_end & 
+                                                         index_date_covid_infection_3 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0), 
+             infection4_during_exposure_period = case_when(difftime(index_date_covid_infection_4, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_4 <= perinatal_vaccination_timing_period_end & 
+                                                         index_date_covid_infection_4 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0),              
+         infection_number = infection1_during_exposure_period + infection2_during_exposure_period + infection3_during_exposure_period + infection4_during_exposure_period, 
+         symptomatic_infection = case_when(infection1_during_exposure_period == 1 & final_symptomatic_covid_infection_1=="true" ~ "Symptomatic",
+                                           infection2_during_exposure_period ==1 & final_symptomatic_covid_infection_2=="true" ~ "Symptomatic",
+                                           infection3_during_exposure_period ==1 & final_symptomatic_covid_infection_3=="true" ~ "Symptomatic", 
+                                           ((infection1_during_exposure_period == 1 & final_symptomatic_covid_infection_1=="false") |
+                                              (infection2_during_exposure_period == 1 & final_symptomatic_covid_infection_2=="false") |
+                                              (infection3_during_exposure_period == 1 & final_symptomatic_covid_infection_3=="false")) ~ "Asymptomatic", 
+                                           ((infection1_during_exposure_period == 1 & is.na(final_symptomatic_covid_infection_1)) |
+                                              (infection2_during_exposure_period == 1 & is.na(final_symptomatic_covid_infection_2)) |
+                                              (infection3_during_exposure_period == 1 & is.na(final_symptomatic_covid_infection_3))) ~ "Unknown"))
+    
+    table = bind_rows(
+      
+      data %>%
+        group_by(exposure, gest_weeks_at_exposure_cat) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("gestation_at_first_infection:", gest_weeks_at_exposure_cat)),
+      
+      # number of infections during pregnancy
+      data %>% 
+        group_by(exposure, infection_number) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("infection_number:", infection_number)),
+      
+      # symptomatic infection 
+      data %>% 
+        group_by(exposure, symptomatic_infection) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("symptomatic_infection:", symptomatic_infection))
+      
+    )
+    
+  }
+  
+  
+  table <- table %>% 
+    select(rowname, exposed, unexposed) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category")) %>%
+    group_by(category) %>%
+    mutate(percentage = round(as.numeric(exposed)/sum(as.numeric(exposed), na.rm = T)*100, 1), 
+           percentage_control = round(as.numeric(unexposed)/sum(as.numeric(unexposed), na.rm = T)*100, 1)) %>%
+    ungroup() %>% 
+    filter(sub_category != "NA") %>%
+    mutate(cohort = cohort) %>%
+    rename(contemporary = "unexposed", percentage_contemporary = "percentage_control")
+    
+    
+  if(exposure == "vaccination") {
+    
+      table <- table %>% rename(vacc = "exposed")
+
+  } else if(exposure == "infection") {
+    
+    table <- table %>% rename(inf = "exposed")
+  
+  }
+
+}
+
+
+test <- get_exposure_numbers_maternal_outcomes(cohort7_infect_contemp_controls_singletons, exposure = "infection")
+
+
+get_maternal_outcomes_numbers <- function(data, cohort = "7", exposure = "vaccination") {
+  
+  if(exposure == "vaccination") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(vacc_or_unvacc == "vacc", "exposed", "unexposed"))
+    
+  } else if(exposure == "infection") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(inf_or_uninf == "inf", "exposed", "unexposed"))
+    
+  }
+
+  # cohort 7 = hypertensive disorders of pregnancy 
+  if(cohort == "7") {
+    
+    data <- data %>% 
+      mutate(cohort_outcome = case_when(hypertension_outcome == 1 ~ "Hypertension diagnosed", 
+                                        T ~ "No hypertension")) 
+    
+    broad_hypertension_row <- data %>%
+      mutate(broad_cohort_outcome = case_when(hypertension_broad_outcome == 1 ~ "Hypertension (broad def) diagnosed", 
+                                              T ~ "No (broad) hypertension")) %>%
+      group_by(exposure, broad_cohort_outcome) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("broad_hypertension:", broad_cohort_outcome))
+
+  # cohort 4 = Venous thromboembolism
+  } else if(cohort == "8") {
+    
+    data <- data %>% 
+      mutate(cohort_outcome = vte_outcome) 
+      
+  # Pregnancy-related bleeding
+  } else if(cohort == "9") {
+    
+    data <- data %>% 
+      mutate(cohort_outcome = case_when(any_bleeding_outcome == 1 ~ "bleeding diagnosed", 
+                                        T ~ "no bleeding diagnosed"))
+
+    bleeding_breakdown_row <- bind_rows(
+      
+      data %>%
+        group_by(exposure, obs_haem_outcome) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("obs_haem_outcome:", obs_haem_outcome)), 
+      
+      data %>%
+        group_by(exposure, early_preg_bleeding_outcome) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("early_preg_bleeding_outcome:", early_preg_bleeding_outcome)), 
+      
+      data %>%
+        group_by(exposure, dissem_intravascular_coag_outcome) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("dissem_intravascular_coag_outcome:", dissem_intravascular_coag_outcome))
+      
+      )
+    
+  # Death/ICU admission
+  } else if(cohort == "10") {
+    
+    data <- data %>% 
+      mutate(cohort_outcome = icu_and_death_outcome) 
+    
+    icu_death_row <- bind_rows(
+      
+      data %>%
+        group_by(exposure, icu_outcome) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("icu_outcome:", icu_outcome)), 
+      
+      data %>%
+      group_by(exposure, death_outcome) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("death_outcome:", death_outcome))
+
+      
+    )
+
+
+  }
+  
+  table <- bind_rows(
+    
+    data%>%
+      group_by(pregnancy_id) %>% 
+      slice(1) %>%
+      ungroup %>%
+      group_by(exposure) %>%
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_preg:"),
+    
+        
+    data %>%
+      group_by(exposure) %>% 
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_births:"), 
+
+    
+    data %>%
+      filter(outcome == "Live birth") %>%
+      group_by(exposure) %>% 
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_live_births:"), 
+    
+        
+    data %>%
+      filter(outcome == "Stillbirth") %>%
+      group_by(exposure) %>% 
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_stillbirths:"), 
+    
+
+    data %>% 
+      group_by(exposure, cohort_outcome) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("cohort_outcome:", cohort_outcome))
+
+  )
+  
+  if(cohort == "9") {
+    
+    table <- bind_rows(table, bleeding_breakdown_row)
+    
+  } else if(cohort == "10") {
+    
+    table <- bind_rows(table, icu_death_row)
+
+  } else if(cohort == "7") {
+    
+    table <- bind_rows(table, broad_hypertension_row) 
+  }
+  
+  table <- table %>% 
+    select(rowname, exposed, unexposed) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category")) %>%
+    group_by(category) %>%
+    mutate(percentage = round(as.numeric(exposed)/sum(as.numeric(exposed), na.rm = T)*100, 1), 
+           percentage_control = round(as.numeric(unexposed)/sum(as.numeric(unexposed), na.rm = T)*100, 1)) %>%
+    ungroup() %>% 
+    filter(sub_category != "NA") %>%
+    mutate(cohort = cohort) %>%
+    rename(contemporary = "unexposed", percentage_contemporary = "percentage_control")
+    
+    
+  if(exposure == "vaccination") {
+    
+      table <- table %>% rename(vacc = "exposed")
+
+  } else if(exposure == "infection") {
+    
+    table <- table %>% rename(inf = "exposed")
+  
+  }
+
+}
+
+
+```
+
+## Hypertension  
+
+#### infections
+
+```{r cohort-7, echo=FALSE}
+
+cohort_7_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort7_infect_contemp_controls_singletons, exposure = "infection")
+
+cohort_7_exposure <- get_exposure_numbers_maternal_outcomes(cohort7_infect_contemp_controls_singletons, exposure = "infection", cohort = "7")
+
+cohort_7_outcomes <- get_maternal_outcomes_numbers(cohort7_infect_contemp_controls_singletons, exposure = "infection", cohort = "7")
+
+```
+
+#### vaccinations
+
+```{r cohort-7, echo=FALSE}
+
+cohort_7_vacc_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort7_vacc_contemp_controls_singletons, exposure = "vaccination")
+
+cohort_7_vacc_exposure <- get_exposure_numbers_maternal_outcomes(cohort7_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "7")
+
+cohort_7_vacc_outcomes <- get_maternal_outcomes_numbers(cohort7_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "7")
+
+```
+
+
+## vte 
+
+#### infections
+
+```{r cohort-8, echo=FALSE}
+
+cohort_8_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort8_infect_contemp_controls_singletons, exposure = "infection")
+
+cohort_8_exposure <- get_exposure_numbers_maternal_outcomes(cohort8_infect_contemp_controls_singletons, exposure = "infection", cohort = "8")
+
+cohort_8_outcomes <- get_maternal_outcomes_numbers(cohort8_infect_contemp_controls_singletons, exposure = "infection", cohort = "8")
+
+
+```
+
+#### vaccinations
+```{r cohort-8, echo=FALSE}
+
+cohort_8_vacc_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort8_vacc_contemp_controls_singletons, exposure = "vaccination")
+
+cohort_8_vacc_exposure <- get_exposure_numbers_maternal_outcomes(cohort8_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "8")
+
+cohort_8_vacc_outcomes <- get_maternal_outcomes_numbers(cohort8_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "8")
+
+```
+
+
+## bleeding 
+
+#### infections
+
+```{r cohort-9, echo=FALSE}
+
+
+cohort_9_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort9_infect_contemp_controls_singletons, exposure = "infection")
+
+cohort_9_exposure <- get_exposure_numbers_maternal_outcomes(cohort9_infect_contemp_controls_singletons, exposure = "infection", cohort = "9")
+
+cohort_9_outcomes <- get_maternal_outcomes_numbers(cohort9_infect_contemp_controls_singletons, exposure = "infection", cohort = "9")
+
+
+```
+
+```{r cohort-9, echo=FALSE}
+
+cohort_9_vacc_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort9_vacc_contemp_controls_singletons, exposure = "vaccination")
+
+cohort_9_vacc_exposure <- get_exposure_numbers_maternal_outcomes(cohort9_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "9")
+
+cohort_9_vacc_outcomes <- get_maternal_outcomes_numbers(cohort9_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "9")
+
+
+
+
+
+```
+
+
+## icu/death 
+
+#### infections
+
+```{r cohort-10, echo=FALSE}
+
+cohort_10_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort10_infect_contemp_controls_singletons, exposure = "infection")
+
+cohort_10_exposure <- get_exposure_numbers_maternal_outcomes(cohort10_infect_contemp_controls_singletons, exposure = "infection", cohort = "10")
+
+cohort_10_outcomes <- get_maternal_outcomes_numbers(cohort10_infect_contemp_controls_singletons, exposure = "infection", cohort = "10")
+
+```
+
+```{r cohort-10, echo=FALSE}
+
+cohort_10_vacc_demographics <- get_characteristics_descriptives_maternal_outcomes(cohort10_vacc_contemp_controls_singletons, exposure = "vaccination")
+
+cohort_10_vacc_exposure <- get_exposure_numbers_maternal_outcomes(cohort10_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "10")
+
+cohort_10_vacc_outcomes <- get_maternal_outcomes_numbers(cohort10_vacc_contemp_controls_singletons, exposure = "vaccination", cohort = "10")
+
+```
+
+
+

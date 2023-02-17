@@ -1,0 +1,1752 @@
+---
+title: "Baby Outcomes descriptives"
+author: "Laura Lindsay"
+date: "18/08/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, out.width = "100%")
+library(tidyverse)
+library(lubridate)
+library(kableExtra)
+library(dplyr)
+
+opts <- options(knitr.kable.NA = "")
+
+folder_scripts <- ""
+
+
+source(paste0(folder_scripts, "/00-setup.R"))
+
+colname_vaccination <- c("", rep(c("Vaccinated", "%", "Contemporary Controls", "%"), 4))
+colname_infection <- c("", "Infected", "%", "Contemporary Controls", "%")
+
+
+```
+
+```{r descriptive_functions, include = FALSE}
+
+# DESCRIPTIVE FUNCTIONS #
+
+# get demographic information of each cohort ####
+
+get_characteristics_descriptives <- function(data, exposure = "vaccination", control = "contemporary") {
+  
+  if(exposure == "vaccination") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(vacc_or_unvacc == "vacc", "exposed", "unexposed"))
+    
+  } else if(exposure == "infection") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(inf_or_uninf == "inf", "exposed", "unexposed"))
+    
+  }
+  
+  data <- data %>%
+    mutate(preg_id = gsub('.{2}$', "", pregnancy_id))
+  
+  
+  table <- bind_rows(
+        # n pregnancies 
+    
+    data %>%
+      group_by(preg_id) %>% 
+      slice(1) %>%
+      ungroup %>%
+      group_by(exposure) %>%
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_preg:"),
+    
+    # n births 
+    
+    data %>%
+      group_by(exposure) %>% 
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_births:"), 
+    
+    # median age (at conception)
+    
+    data %>%
+      group_by(exposure) %>%
+      summarise(median_age = median(mother_age_at_conception), 
+                min_age = min(mother_age_at_conception), 
+                max_age = max(mother_age_at_conception)) %>%
+      pivot_longer(!exposure, names_to = "age") %>%
+      pivot_wider(names_from = exposure, values_from = value) %>% 
+      mutate(rowname = paste0(age, ":")) %>%
+      select(-age), 
+    
+    # deprivation
+    data %>%
+      group_by(exposure, simd) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("deprivation:", simd)), 
+    
+    # ethnicity
+    data %>%
+      group_by(exposure, ethnicity_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("ethnicity:", ethnicity_cat)),
+    
+    # urban/rural status
+    data %>%
+      group_by(exposure, UR6_categories) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("UR6_categories:", UR6_categories)),
+    
+    # clinical vulnerability
+    data %>%
+      group_by(exposure, cv_clinical_vulnerability_category) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("clinical_vulnerability:", cv_clinical_vulnerability_category)),
+    
+    # diabetes
+    data %>%
+      group_by(exposure, diabetes_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("diabetes:", diabetes_cat)),
+    
+    # smoking
+    data %>%
+      group_by(exposure, smoking_status) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("smoking_status:", smoking_status)),
+    
+    # bmi
+    data %>%
+      group_by(exposure, bmi_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("bmi:", bmi_cat)), 
+    
+    # imputed gestation 
+    data %>%
+      group_by(exposure, gestation_ascertainment) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("imputed_gestation:", gestation_ascertainment)), 
+    
+    #parity 
+    data %>%
+      group_by(exposure, parity_cat) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("parity:", parity_cat))
+    
+  )
+  
+  table <- table %>% 
+    select(rowname, exposed, unexposed) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category")) %>%
+    group_by(category) %>%
+    mutate(percentage = round(as.numeric(exposed)/sum(as.numeric(exposed), na.rm = T)*100, 1), 
+           percentage_control = round(as.numeric(unexposed)/sum(as.numeric(unexposed), na.rm = T)*100, 1))
+  
+  if(exposure == "vaccination") {
+    
+    table <- table %>% rename(vacc = "exposed")
+    
+  } else if(exposure == "infection") {
+    
+    table <- table %>% rename(inf = "exposed")
+  }
+  
+  if(control == "historical") {
+    
+    table <- table %>% select(category, sub_category, unexposed, percentage_control) %>% 
+      rename(historic = "unexposed", percentage_historic = "percentage_control")
+    
+  } else if(control == "contemporary" ) {
+    
+    table <- table %>% rename(contemporary = "unexposed", percentage_contemporary = "percentage_control")
+    
+  }
+  
+  return(table)
+  
+}
+
+# get outcome and exposure descriptives for each cohort ####
+
+get_exposure_descriptives <- function(data, exposure = "vaccination", control = "contemporary", analysis = "perinatal", cohort = "1") {
+  
+  dose_1_valid <- c("dose 1 & dose 2","dose 1 & dose 2 & dose 3", "dose 1 & dose 3", "only dose 1")
+  dose_2_valid <- c("dose 2 & dose 3", "only dose 2", "dose 2 & dose 3 & dose 4")
+  dose_3_valid <- c("dose 3 & dose 4","only dose 3")
+  dose_4_valid <- c("only dose 4")
+  
+  one_dose_in_exposure <- c("only dose 1", "only dose 2", "only dose 3", "only dose 4")
+  two_dose_in_exposure <- c("dose 1 & dose 2", "dose 1 & dose 3", "dose 2 & dose 3", "dose 3 & dose 4")
+  three_dose_in_exposure <- c("dose 1 & dose 2 & dose 3", "dose 2 & dose 3 & dose 4")
+  
+  if(cohort != "3" & cohort != "4") {
+      
+      data <- data %>%
+        mutate(exposure_end_date = perinatal_vaccination_timing_period_end, 
+               gestation_at_infection = perinatal_gestation_at_index_date, 
+               vaccination_dose_information = perinatal_vaccination_dose_information)
+      
+      } else if(cohort == "3") {
+      
+      data <- data %>%
+        mutate(exposure_end_date = ptb_vaccination_timing_period_end, 
+               gestation_at_infection = ptb_gestation_at_index_date, 
+               vaccination_dose_information = ptb_vaccination_dose_information)
+
+      
+      } else if(cohort == "4") {
+            
+    data <- data %>%
+        mutate(exposure_end_date = vptb_vaccination_timing_period_end, 
+               gestation_at_infection = vptb_gestation_at_index_date, 
+               vaccination_dose_information = vptb_vaccination_dose_information)
+
+    } 
+  
+  if(exposure == "vaccination") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(vacc_or_unvacc == "vacc", "exposed", "unexposed"), 
+             gest_days_at_exposure = case_when(vaccination_dose_information %in% dose_1_valid ~ 
+                                                 difftime(dose_1_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                               vaccination_dose_information %in% dose_2_valid ~ 
+                                                 difftime(dose_2_vacc_occurence_date, est_conception_date, units = c("days")) + 14, 
+                                               vaccination_dose_information %in% dose_3_valid ~ 
+                                                 difftime(dose_3_vacc_occurence_date, est_conception_date, units = c("days")) + 14,
+                                               vaccination_dose_information %in% dose_4_valid ~ 
+                                                 difftime(dose_4_vacc_occurence_date, est_conception_date, units = c("days")) + 14), 
+             gest_weeks_at_exposure = as.numeric(floor(gest_days_at_exposure/7)), 
+             gest_weeks_at_exposure_cat = case_when(between(gest_weeks_at_exposure, 2, 19) ~ "2-19 weeks", 
+                                                    gest_weeks_at_exposure < 2 ~ "Preconception",
+                                                    gest_weeks_at_exposure >= 20 ~ ">=20"), 
+             first_dose = case_when(vaccination_dose_information %in% dose_1_valid ~ "Dose 1", 
+                                    vaccination_dose_information %in% dose_2_valid ~ "Dose 2",
+                                    vaccination_dose_information %in% dose_3_valid ~ "Dose 3",
+                                    vaccination_dose_information %in% dose_4_valid ~ "Dose 4"), 
+             no_of_doses_in_exposure = case_when(vaccination_dose_information %in% one_dose_in_exposure ~ "1", 
+                                                 vaccination_dose_information %in% two_dose_in_exposure ~ "2+", 
+                                                 vaccination_dose_information %in% three_dose_in_exposure ~ "2+"))
+    
+    vaccine_rows = bind_rows(
+      
+      # gestation at first vaccination
+      data %>%
+        group_by(exposure, gest_weeks_at_exposure_cat) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("gestation_at_first_vax:", gest_weeks_at_exposure_cat)),
+      
+      # dose number of first vaccine given within exposure period
+      data %>% 
+        group_by(exposure, first_dose) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("dose_number_at_first_vax:", first_dose)),
+      
+      # number of vaccinations given in exposure period 
+      data %>% 
+        group_by(exposure, no_of_doses_in_exposure) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("no_of_vax_given:", no_of_doses_in_exposure)), 
+      
+      # number of vaccinations given in exposure period 
+      data %>% 
+        group_by(exposure, vaccination_subgroup) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("vaccination_subgroup:", vaccination_subgroup))
+
+    )
+    
+  } else if(exposure == "infection") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(inf_or_uninf == "inf", "exposed", "unexposed"),
+             gest_weeks_at_exposure_cat = case_when(between(gestation_at_infection, 2, 19) ~ "2-19 weeks", 
+                                                    gestation_at_infection < 2 ~ "Preconception",
+                                                    gestation_at_infection >= 20 ~ ">=20"), 
+             infection1_during_exposure_period = case_when(difftime(index_date_covid_infection_1, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_1 <= exposure_end_date & 
+                                                         index_date_covid_infection_1 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0),
+             infection2_during_exposure_period = case_when(difftime(index_date_covid_infection_2, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_2 <= exposure_end_date & 
+                                                         index_date_covid_infection_2 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0), 
+             infection3_during_exposure_period = case_when(difftime(index_date_covid_infection_3, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_3 <= exposure_end_date & 
+                                                         index_date_covid_infection_3 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0), 
+             infection4_during_exposure_period = case_when(difftime(index_date_covid_infection_4, est_conception_date) >= -42 &
+                                                         index_date_covid_infection_4 <= exposure_end_date & 
+                                                         index_date_covid_infection_4 <= pregnancy_end_date ~ 1, 
+                                                       T ~ 0),              
+         infection_number = infection1_during_exposure_period + infection2_during_exposure_period + infection3_during_exposure_period + infection4_during_exposure_period, 
+         symptomatic_infection = case_when(infection1_during_exposure_period == 1 & final_symptomatic_covid_infection_1=="true" ~ "Symptomatic",
+                                           infection2_during_exposure_period ==1 & final_symptomatic_covid_infection_2=="true" ~ "Symptomatic",
+                                           infection3_during_exposure_period ==1 & final_symptomatic_covid_infection_3=="true" ~ "Symptomatic", 
+                                           ((infection1_during_exposure_period == 1 & final_symptomatic_covid_infection_1=="false") |
+                                              (infection2_during_exposure_period == 1 & final_symptomatic_covid_infection_2=="false") |
+                                              (infection3_during_exposure_period == 1 & final_symptomatic_covid_infection_3=="false")) ~ "Asymptomatic", 
+                                           ((infection1_during_exposure_period == 1 & is.na(final_symptomatic_covid_infection_1)) |
+                                              (infection2_during_exposure_period == 1 & is.na(final_symptomatic_covid_infection_2)) |
+                                              (infection3_during_exposure_period == 1 & is.na(final_symptomatic_covid_infection_3))) ~ "Unknown"))
+    
+    infection_rows = bind_rows(
+      
+      data %>%
+        group_by(exposure, gest_weeks_at_exposure_cat) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("gestation_at_first_infection:", gest_weeks_at_exposure_cat)),
+      
+      # number of infections during pregnancy
+      data %>% 
+        group_by(exposure, infection_number) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("infection_number:", infection_number)),
+      
+      # symptomatic infection 
+      data %>% 
+        group_by(exposure, symptomatic_infection) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("symptomatic_infection:", symptomatic_infection))
+      
+    )
+    
+  }
+  
+  if(analysis == "perinatal") {
+    
+    if(cohort == "1") {
+      
+      data <- data %>%
+        mutate(cohort_outcome = outcome, 
+               perinatal_death = case_when(outcome == "Stillbirth" ~ "Stillbirth_peri",
+                                           neonatal_death == "Early neonatal death (d0-6)" ~ "Neonatal Death",
+                                           neonatal_death == "Late neonatal death (d7-27)" ~ "Neonatal Death", 
+                                           T ~ "Live birth/survived neonatal period"))
+      
+      cohort1_row <- data %>%
+        group_by(exposure, perinatal_death) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("perinatal_death:", perinatal_death))
+      
+    } else if(cohort == "2") {
+      
+      data <- data %>%
+        mutate(cohort_outcome = neonatal_death) 
+      
+    } else if(cohort == "3") {
+      
+      data <- data %>%
+        mutate(cohort_outcome = case_when(outcome == "Live birth" & gestation_at_outcome < 37 ~ "Preterm", 
+                                          outcome == "Live birth" & gestation_at_outcome >= 37 ~ "Term"), 
+               preterm_delivery_process_outcome = case_when(cohort_outcome == "Preterm" ~ smr02_onset_of_delivery_process))
+      
+      preterm_row <- data %>%
+        group_by(exposure, preterm_delivery_process_outcome) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("preterm_delivery_process_outcome:", preterm_delivery_process_outcome))
+
+      
+    } else if(cohort == "4") {
+      
+      data <- data %>%
+        mutate(cohort_outcome = case_when(outcome == "Live birth" & gestation_at_outcome < 32 ~ "Very preterm", 
+                                          outcome == "Live birth" & gestation_at_outcome >= 32 ~ "Preterm & term"), 
+               preterm_delivery_process_outcome = case_when(cohort_outcome == "Very preterm" ~ smr02_onset_of_delivery_process))
+      
+      preterm_row <- data %>%
+        group_by(exposure, preterm_delivery_process_outcome) %>%
+        tally() %>%
+        pivot_wider(names_from = exposure, values_from = n) %>% 
+        mutate(rowname = paste0("preterm_delivery_process_outcome:", preterm_delivery_process_outcome))
+
+
+    } else if(cohort == "5") {
+      
+      data <- data %>%
+        mutate(cohort_outcome = case_when(smr02_birthweight_percentile < 3 ~ "Very small for gestational age", 
+                                          between(smr02_birthweight_percentile, 3, 9.9999999) ~ "Small for gestational age", 
+                                          smr02_birthweight_percentile >= 10 ~ "Not small for gestational age", 
+                                          T ~ "Missing"))
+      
+    } else if(cohort == "6") {
+      
+      data <- data %>%
+        mutate(cohort_outcome = case_when(apgar_score < 4 ~ "Very low apgar",
+                                           between(apgar_score, 4, 6.99999) ~ "Low apgar", 
+                                           apgar_score >= 7 ~ "Apgar score > 7", 
+                                           T ~ "Missing"))
+      
+    } 
+  }
+  
+  data <- data %>%
+    mutate(preg_id = gsub('.{2}$', "", pregnancy_id))
+  
+  table <- bind_rows(
+    
+    # n pregnancies 
+    data %>%
+      group_by(preg_id) %>% 
+      slice(1) %>%
+      ungroup %>%
+      group_by(exposure) %>%
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_preg:"),
+    
+    # n births 
+    data %>%
+      group_by(exposure) %>% 
+      tally() %>% 
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = "n_births:"), 
+    
+    # n cohort outcome 
+    data %>%
+      group_by(exposure, cohort_outcome) %>% 
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>% 
+      mutate(rowname = paste0("cohort_outcome:", cohort_outcome))
+    
+    
+  )
+  
+  if(analysis == "perinatal" & cohort == "1") {
+    
+    table <- bind_rows(table, cohort1_row)
+    
+  } else if(analysis == "perinatal" & (cohort == "3" | cohort == "4")) {
+    
+    table <- bind_rows(table, preterm_row)
+
+  } 
+  
+  if(exposure == "vaccination") {
+    
+    table <- bind_rows(table, vaccine_rows)
+    
+  } else if(exposure == "infection") {
+    
+    table <- bind_rows(table, infection_rows)
+    
+  }
+  
+  table <- table %>% 
+    select(rowname, exposed, unexposed) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category")) %>%
+    group_by(category) %>%
+    mutate(percentage = round(as.numeric(exposed)/sum(as.numeric(exposed), na.rm = T)*100, 1), 
+           percentage_control = round(as.numeric(unexposed)/sum(as.numeric(unexposed), na.rm = T)*100, 1)) %>%
+    ungroup() %>% 
+    filter(sub_category != "NA") %>%
+    mutate(cohort = cohort)
+  
+  if(exposure == "vaccination") {
+    
+    table <- table %>% rename(vacc = "exposed")
+    
+  } else if(exposure == "infection") {
+    
+    table <- table %>% rename(inf = "exposed")
+  
+  }
+  
+  if(control == "historical") {
+    
+    table <- table %>% select(category, sub_category, unexposed, percentage_control) %>% 
+      rename(historic = "unexposed", percentage_historic = "percentage_control")
+    
+  } else if(control == "contemporary" ) {
+    
+    table <- table %>% rename(contemporary = "unexposed", percentage_contemporary = "percentage_control")
+    
+  }
+  
+  return(table)
+  
+}
+
+
+
+```
+
+
+## Sociodemographic Information 
+### Vaccinated cohort (cohort 1)
+
+Characteristics and outcome tables for vaccinated cohort 1 (with contemporary controls).  
+
+
+```{r cohort1_characteristics}
+
+# all vaccinations 
+cohort1_demographics = get_characteristics_descriptives(cohort1_vacc_contemp_controls_singletons, control = "contemporary") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) 
+
+cohort1_pfizer_demographics <- get_characteristics_descriptives(subset(cohort1_vacc_contemp_controls_singletons, vaccination_subgroup == "Pfizer"),
+                                                                control = "contemporary") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary") 
+
+cohort1_moderna_demographics <- get_characteristics_descriptives(subset(cohort1_vacc_contemp_controls_singletons, vaccination_subgroup == "Moderna"),
+                                                                          control = "contemporary") %>%   
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary") 
+
+cohort1_astra_demographics <- get_characteristics_descriptives(subset(cohort1_vacc_contemp_controls_singletons, vaccination_subgroup == "AstraZeneca"),
+                                                                         control = "contemporary") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_astrazeneca = "vacc", 
+         contemporary_astrazeneca = "contemporary", 
+         percentage_astrazeneca = "percentage", 
+         percentage_contemporary_astrazeneca = "percentage_contemporary") 
+
+cohort1_demographics_table <- cohort1_demographics %>%
+  full_join(., cohort1_pfizer_demographics) %>%
+  full_join(., cohort1_moderna_demographics) %>%
+  full_join(., cohort1_astra_demographics)
+
+write_csv(cohort1_demographics_table, paste0(folder_results, "cohort1_demographics_vaccination.csv"))
+
+cohort1_demographics_table <- cohort1_demographics_table %>%
+  mutate(sub_category = case_when(category == "median_age" ~ "median", 
+                                  category == "min_age" ~ "min", 
+                                  category == "max_age" ~ "max", 
+                                  T ~ sub_category)) %>%
+  as.data.frame() %>%
+  select(-c(category))
+
+
+kableExtra::kable(cohort1_demographics_table, caption = "Cohort 1 Demographics Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 4, "Pfizer" = 4, "Moderna" = 4, "AstraZeneca" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births & Stillbirths)" = 1,
+              "Age" = 3, 
+              "SIMD" = 6,
+              "Ethnicity" = 5, 
+              "Urban/rural" = 7, 
+              "Clinical vulnerability" = 3, 
+              "Diabetes" = 3, 
+              "Smoking status" = 4, 
+              "Bmi" = 5)) %>%
+  kable_styling(font_size = 10)
+
+```
+
+
+
+### Infected cohort 
+
+Sociodemographic information for infected cohort 1 (with contemporary controls).  
+
+
+```{r cohort1_demographics_infections}
+
+cohort1_infection_demographics = get_characteristics_descriptives(cohort1_infect_contemp_controls_singletons, control = "contemporary", exposure = "infection") %>%
+  select(category, sub_category, inf, percentage, contemporary, percentage_contemporary) 
+
+write_csv(cohort1_infection_demographics, paste0(folder_results, "cohort1_infection_demographics.csv"))
+
+cohort1_infection_demographics_table <- cohort1_infection_demographics %>%
+  mutate(sub_category = case_when(category == "median_age" ~ "median", 
+                                  category == "min_age" ~ "min", 
+                                  category == "max_age" ~ "max", 
+                                  T ~ sub_category)) %>%
+  as.data.frame() %>%
+  select(-c(category))
+
+
+kableExtra::kable(cohort1_infection_demographics_table, caption = "Cohort 1 Demographics Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births & Stillbirths)" = 1,
+              "Age" = 3, 
+              "SIMD" = 6,
+              "Ethnicity" = 5, 
+              "Urban/rural" = 7, 
+              "Clinical vulnerability" = 3, 
+              "Diabetes" = 3, 
+              "Smoking status" = 4, 
+              "Bmi" = 5)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+## Exposure and Outcome Tables 
+
+
+```{r cohort1_outcome_descriptives}
+
+cohort1_outcome_descriptives = get_exposure_descriptives(cohort1_vacc_contemp_controls_singletons, 
+                                                         control = "contemporary") %>%
+    select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) 
+
+cohort1_pfizer_outcome_descriptives = get_exposure_descriptives(subset(cohort1_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), control = "contemporary") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary") 
+
+cohort1_moderna_outcome_descriptives = get_exposure_descriptives(subset(cohort1_vacc_contemp_controls, vaccination_subgroup == "Moderna"), control = "contemporary") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary") 
+
+
+cohort1_astra_outcome_descriptives = get_exposure_descriptives(subset(cohort1_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"), control = "contemporary")%>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_astra = "vacc", 
+         contemporary_astra = "contemporary", 
+         percentage_astra = "percentage", 
+         percentage_contemporary_astra = "percentage_contemporary") 
+
+cohort1_outcome_descriptives_table <- cohort1_outcome_descriptives %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Live birth",  "Stillbirth",
+                                                  "Live birth/survived neonatal period", "Stillbirth_peri", "Neonatal Death", 
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", "Gestation imputed based on outcome of pregnancy",
+                                                   "Preconception","2-5 weeks","6-10 weeks","11-15 weeks", "16-19 weeks", ">=20", 
+                                                   "Dose 1", "Dose 2", "Dose 3", 
+                                                   "1", "2+"))) %>%
+    arrange(column, category) 
+
+
+write_csv(cohort1_outcome_descriptives_table, paste0(folder_results, "cohort1_outcome_descriptives_vaccination.csv"))
+
+cohort1_outcome_descriptives_table <- cohort1_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort1_outcome_descriptives_table, caption = "Cohort 1 Outcome & Exposure Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 4, "Pfizer" = 4, "Moderna" = 4, "AstraZeneca" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births & Stillbirths)" = 1,
+              "Pregnancy Outcome" = 2, 
+              "Extended Perinatal Death" = 3, 
+              "Imputed Gestation" = 3, 
+              "Gestation at first vaccination" = 6, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Number of Doses given in exposure period" = 2)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+
+```{r cohort1_infections_outcomes}
+
+cohort1_infections_outcome_descriptives = get_exposure_descriptives(cohort1_infect_contemp_controls_singletons, 
+                                                                    control = "contemporary",  
+                                                                    exposure = "infection", cohort = "1") %>%
+    select(category, sub_category, inf, percentage, contemporary, percentage_contemporary) 
+
+
+write_csv(cohort1_infections_outcome_descriptives, paste0(folder_results, "cohort1_outcome_descriptives_infection.csv"))
+
+cohort1_infections_outcome_descriptives_table <- cohort1_infections_outcome_descriptives %>%
+  as.data.frame() %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Live birth",  "Stillbirth",
+                                                  "Live birth/survived neonatal period", "Stillbirth_peri", "Neonatal Death", 
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy"))) %>%
+  arrange(column) %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort1_infections_outcome_descriptives_table, caption = "Cohort 1 Outcome & Exposure Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births & Stillbirths)" = 1,
+              "Pregnancy Outcome" = 2, 
+              "Extended Perinatal Death" = 3, 
+              "Gestation at first infection" = 6, 
+              "Number of infections during exposure period" = 3,
+              "Symptomatic Infection" = 3)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+```{r cohort2_outcome_descriptives}
+
+cohort2_outcome_descriptives = get_exposure_descriptives(cohort2_vacc_contemp_controls_singletons, control = "contemporary", cohort = "2") %>%
+    select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) 
+
+cohort2_pfizer_outcome_descriptives = get_exposure_descriptives(subset(cohort2_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "contemporary") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary") 
+
+cohort2_moderna_outcome_descriptives = get_exposure_descriptives(subset(cohort2_vacc_contemp_controls, vaccination_subgroup == "Moderna"), control = "contemporary") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary") 
+
+
+cohort2_astra_outcome_descriptives = get_exposure_descriptives(subset(cohort2_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"), control = "contemporary")%>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_astra = "vacc", 
+         contemporary_astra = "contemporary", 
+         percentage_astra = "percentage", 
+         percentage_contemporary_astra = "percentage_contemporary") 
+
+cohort2_outcome_descriptives_table <- cohort2_outcome_descriptives %>%
+  full_join(., cohort2_pfizer_outcome_descriptives) %>%
+  full_join(., cohort2_moderna_outcome_descriptives) %>%
+  full_join(., cohort2_astra_outcome_descriptives) %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Live birth",  "Stillbirth",
+                                                  "Live birth/survived neonatal period", "Stillbirth_peri", "Neonatal Death", 
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", "Gestation imputed based on outcome of pregnancy",
+                                                   "Preconception","2-5 weeks","6-10 weeks","11-15 weeks", "16-19 weeks", ">=20", 
+                                                   "Dose 1", "Dose 2", "Dose 3", 
+                                                   "1", "2+"))) %>%
+    arrange(column, category) 
+
+
+write_csv(cohort2_outcome_descriptives_table, paste0(folder_results, "cohort2_outcome_descriptives_vaccination.csv"))
+
+cohort2_outcome_descriptives_table <- cohort2_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort2_outcome_descriptives_table, caption = "Cohort 1 Outcome & Exposure Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 4, "Pfizer" = 4, "Moderna" = 4, "AstraZeneca" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births & Stillbirths)" = 1,
+              "Pregnancy Outcome" = 2, 
+              "Extended Perinatal Death" = 3, 
+              "Imputed Gestation" = 3, 
+              "Gestation at first vaccination" = 6, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Number of Doses given in exposure period" = 2)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+```{r}
+
+cohort2_outcome_descriptives_infection = get_exposure_descriptives(cohort2_infect_contemp_controls_singletons, control = "contemporary", cohort = "2", exposure = "infection") %>%
+  select(category, sub_category, inf, percentage, contemporary, percentage_contemporary) %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Survived neonatal period",  "Early neonatal death (d0-6)", "Late neonatal death (d7-27)", 
+                                                  "Apgar score > 7", "Low apgar", "Very low apgar", "Missing", 
+                                                  "Not small for gestational age", "Small for gestational age", "Missing_gestation", 
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", "Gestation imputed based on outcome of 
+                                                  pregnancy"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort2_outcome_descriptives_infection, paste0(folder_results, "cohort2_outcome_descriptives_infection.csv"))
+
+cohort2_outcome_descriptives_infection_table <- cohort2_outcome_descriptives_infection %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort2_outcome_descriptives_infection_table, caption = "Cohort 2 Outcome & Exposure Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births & Stillbirths)" = 1,
+              "Pregnancy Outcome" = 3, 
+              "Gestation at first infection" = 6, 
+              "Number of infections during exposure period" = 3,
+              "Symptomatic Infection" = 3)) %>%
+  kable_styling(font_size = 10)
+
+
+
+```
+
+```{r cohort3_outcomes_table}
+
+cohort3_outcome_descriptives = get_exposure_descriptives(cohort3_vacc_contemp_controls_singletons, control = "contemporary", cohort = "3") %>%
+    select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) 
+
+cohort3_pfizer_outcome_descriptives = get_exposure_descriptives(subset(cohort3_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "contemporary", cohort = "3") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary") 
+
+
+cohort3_moderna_outcome_descriptives = get_exposure_descriptives(subset(cohort3_vacc_contemp_controls, vaccination_subgroup == "Moderna"), control = "contemporary", cohort = "3") %>%
+  select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary") 
+
+
+cohort3_astra_outcome_descriptives = get_exposure_descriptives(subset(cohort3_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"), control = "contemporary", cohort = "3") %>%
+  rename(vacc_astra = "vacc", 
+         contemporary_astra = "contemporary", 
+         percentage_astra = "percentage", 
+         percentage_contemporary_astra = "percentage_contemporary") 
+
+cohort3_outcome_descriptives_table <- cohort3_outcome_descriptives %>%
+  full_join(., cohort3_pfizer_outcome_descriptives) %>%
+  full_join(., cohort3_moderna_outcome_descriptives) %>%
+  full_join(., cohort3_astra_outcome_descriptives) %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Preterm", "Term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy",
+                                                   "Preconception","2-5 weeks","6-10 weeks","11-15 weeks", "16-19 weeks", ">=20", 
+                                                   "Dose 1", "Dose 2", "Dose 3", 
+                                                   "1", "2+"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort3_outcome_descriptives_table, paste0(folder_results, "cohort3_outcome_descriptives_vaccination.csv"))
+
+cohort3_outcome_descriptives_table <- cohort3_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort3_outcome_descriptives_table, caption = "Cohort 3 Outcome & Exposure Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 4, "Pfizer" = 4, "Moderna" = 4, "AstraZeneca" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Gestation" = 2, 
+              "Imputed Gestation" = 3, 
+              "Gestation at first vaccination" = 6, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Number of Doses given in exposure period" = 2)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+
+```{r}
+
+cohort3_infections_outcome_descriptives = get_exposure_descriptives(cohort3_infect_contemp_controls_singletons, control = "contemporary", 
+                                                                              cohort = "3", exposure = "infection") %>%
+    select(category, sub_category, inf, percentage, contemporary, percentage_contemporary) 
+
+cohort3_infections_outcome_descriptives_table <- cohort3_infections_outcome_descriptives %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Preterm", "Term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort3_infections_outcome_descriptives_table, paste0(folder_results, "cohort3_outcome_descriptives_infections.csv"))
+
+cohort3_infections_outcome_descriptives_table <- cohort3_infections_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort3_infections_outcome_descriptives_table, caption = "Cohort 3 Outcome & Exposure Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Gestation" = 2, 
+              "Gestation at first infection" = 6,
+              "Number of infections during exposure period" = 3,
+              "Delivery Onset" = 2,
+              "Symptomatic Infection" = 3)) %>%
+  kable_styling(font_size = 10)
+
+
+
+```
+
+
+```{r cohort4_outcomes_table}
+
+cohort4_outcome_descriptives = get_exposure_descriptives(cohort4_vacc_contemp_controls_singletons, control = "contemporary", cohort = "4")%>%
+    select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) 
+
+cohort4_pfizer_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "contemporary", cohort = "4"),
+                                                get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "historical", cohort = "4")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         historic_pfizer = "historic", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary", 
+         percentage_historic_pfizer = "percentage_historic") 
+
+
+cohort4_moderna_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "contemporary", cohort = "4"),
+                                                get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "historical", cohort = "4")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         historic_moderna = "historic", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary", 
+         percentage_historic_moderna = "percentage_historic") 
+
+
+cohort4_astra_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"), 
+                                                                          control = "contemporary", cohort = "4"),
+                                                get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"),
+                                                                          control = "historical", cohort = "4")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_astra = "vacc", 
+         contemporary_astra = "contemporary", 
+         historic_astra = "historic", 
+         percentage_astra = "percentage", 
+         percentage_contemporary_astra = "percentage_contemporary", 
+         percentage_historic_astra = "percentage_historic") 
+
+cohort4_outcome_descriptives_table <- cohort4_outcome_descriptives %>%
+  full_join(., cohort4_pfizer_outcome_descriptives) %>%
+  full_join(., cohort4_moderna_outcome_descriptives) %>%
+  full_join(., cohort4_astra_outcome_descriptives) %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Very preterm", "Preterm & term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy",
+                                                   "Preconception","2-5 weeks","6-10 weeks","11-15 weeks", "16-19 weeks", ">=20", 
+                                                   "Dose 1", "Dose 2", "Dose 3", 
+                                                   "1", "2+"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort4_outcome_descriptives_table, paste0(folder_results, "cohort4_outcome_descriptives_vaccination.csv"))
+
+cohort4_outcome_descriptives_table <- cohort4_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort4_outcome_descriptives_table, caption = "Cohort 4 Outcome & Exposure Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 6, "Pfizer" = 6, "Moderna" = 6, "AstraZeneca" = 6)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Gestation" = 2, 
+              "Imputed Gestation" = 3, 
+              "Gestation at first vaccination" = 6, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Number of Doses given in exposure period" = 2)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+```{r}
+
+cohort4_infections_outcome_descriptives = get_exposure_descriptives(cohort4_infect_contemp_controls_singletons, control = "contemporary", 
+                                                                              cohort = "4", exposure = "infection") %>%
+    select(category, sub_category, inf, percentage, contemporary, percentage_contemporary) 
+
+cohort4_infections_outcome_descriptives_table <- cohort4_infections_outcome_descriptives %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Very preterm", "Preterm & term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort4_infections_outcome_descriptives_table, paste0(folder_results, "cohort4_outcome_descriptives_infection.csv"))
+
+cohort4_infections_outcome_descriptives_table <- cohort4_infections_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort4_infections_outcome_descriptives_table, caption = "Cohort 4 Outcome & Exposure Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Gestation" = 2, 
+              "Gestation at first infection" = 6,
+              "Number of infections during exposure period" = 3,
+              "Delivery Onset" = 2,
+              "Symptomatic Infection" = 3)) %>%
+  kable_styling(font_size = 10)
+
+
+
+```
+
+```{r cohort5_outcomes_table}
+
+cohort5_outcome_descriptives = get_exposure_descriptives(cohort5_vacc_contemp_controls_singletons, control = "contemporary", cohort = "5") %>%
+    select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) 
+
+cohort5_pfizer_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort5_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "contemporary", cohort = "5"),
+                                                get_exposure_descriptives(subset(cohort5_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "historical", cohort = "5")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         historic_pfizer = "historic", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary", 
+         percentage_historic_pfizer = "percentage_historic") 
+
+
+cohort5_moderna_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort5_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "contemporary", cohort = "5"),
+                                                get_exposure_descriptives(subset(cohort5_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "historical", cohort = "5")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         historic_moderna = "historic", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary", 
+         percentage_historic_moderna = "percentage_historic") 
+
+
+cohort5_astra_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort5_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"), 
+                                                                          control = "contemporary", cohort = "5"),
+                                                get_exposure_descriptives(subset(cohort5_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"),
+                                                                          control = "historical", cohort = "5")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_astra = "vacc", 
+         contemporary_astra = "contemporary", 
+         historic_astra = "historic", 
+         percentage_astra = "percentage", 
+         percentage_contemporary_astra = "percentage_contemporary", 
+         percentage_historic_astra = "percentage_historic") 
+
+cohort5_outcome_descriptives_table <- cohort5_outcome_descriptives %>%
+  full_join(., cohort5_pfizer_outcome_descriptives) %>%
+  full_join(., cohort5_moderna_outcome_descriptives) %>%
+  full_join(., cohort5_astra_outcome_descriptives) %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Not small for gestational age", "Small for gestational age", "Missing",   
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy",
+                                                   "Preconception","2-5 weeks","6-10 weeks","11-15 weeks", "16-19 weeks", ">=20", 
+                                                   "Dose 1", "Dose 2", "Dose 3", 
+                                                   "1", "2+"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort5_outcome_descriptives_table, paste0(folder_results, "cohort5_outcome_descriptives_vaccination.csv"))
+
+cohort5_outcome_descriptives_table <- cohort5_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort5_outcome_descriptives_table, caption = "Cohort 5 Outcome & Exposure Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 6, "Pfizer" = 6, "Moderna" = 6, "AstraZeneca" = 6)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Small for gestational age" = 3, 
+              "Imputed Gestation" = 3, 
+              "Gestation at first vaccination" = 6, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Number of Doses given in exposure period" = 2)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+```{r}
+cohort5_infections_outcome_descriptives = get_exposure_descriptives(cohort5_infect_contemp_controls_singletons, control = "contemporary", 
+                                                                              cohort = "5", exposure = "infection") %>%
+    select(category, sub_category, inf, percentage, contemporary, percentage_contemporary) 
+
+cohort5_infections_outcome_descriptives_table <- cohort5_infections_outcome_descriptives %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Very preterm", "Preterm & term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort5_infections_outcome_descriptives_table, paste0(folder_results, "cohort5_outcome_descriptives_infection.csv"))
+
+cohort5_infections_outcome_descriptives_table <- cohort5_infections_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort5_infections_outcome_descriptives_table, caption = "Cohort 5 Outcome & Exposure Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Weight" = 4, 
+              "Gestation at first infection" = 6,
+              "Number of infections during exposure period" = 3,
+              "Symptomatic Infection" = 3)) %>%
+  kable_styling(font_size = 10)
+
+```
+
+```{r cohort6_outcomes_table}
+
+cohort6_outcome_descriptives = get_exposure_descriptives(cohort6_vacc_contemp_controls_singletons, control = "contemporary", cohort = "6") %>%
+    select(category, sub_category, vacc, percentage, contemporary, percentage_contemporary) 
+
+cohort6_pfizer_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort6_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "contemporary", cohort = "5"),
+                                                get_exposure_descriptives(subset(cohort6_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "historical", cohort = "5")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         historic_pfizer = "historic", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary", 
+         percentage_historic_pfizer = "percentage_historic") 
+
+
+cohort6_moderna_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort6_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "contemporary", cohort = "5"),
+                                                get_exposure_descriptives(subset(cohort6_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "historical", cohort = "5")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         historic_moderna = "historic", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary", 
+         percentage_historic_moderna = "percentage_historic") 
+
+
+cohort6_astra_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort6_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"), 
+                                                                          control = "contemporary", cohort = "5"),
+                                                get_exposure_descriptives(subset(cohort6_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"),
+                                                                          control = "historical", cohort = "5")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_astra = "vacc", 
+         contemporary_astra = "contemporary", 
+         historic_astra = "historic", 
+         percentage_astra = "percentage", 
+         percentage_contemporary_astra = "percentage_contemporary", 
+         percentage_historic_astra = "percentage_historic") 
+
+cohort6_outcome_descriptives_table <- cohort6_outcome_descriptives %>%
+  full_join(., cohort6_pfizer_outcome_descriptives) %>%
+  full_join(., cohort6_moderna_outcome_descriptives) %>%
+  full_join(., cohort6_astra_outcome_descriptives) %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Not small for gestational age", "Small for gestational age", "Missing",   
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy",
+                                                   "Preconception","2-5 weeks","6-10 weeks","11-15 weeks", "16-19 weeks", ">=20", 
+                                                   "Dose 1", "Dose 2", "Dose 3", 
+                                                   "1", "2+"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort6_outcome_descriptives_table, paste0(folder_results, "cohort6_outcome_descriptives_vaccination.csv"))
+
+cohort6_outcome_descriptives_table <- cohort6_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort6_outcome_descriptives_table, caption = "Cohort 5 Outcome & Exposure Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 6, "Pfizer" = 6, "Moderna" = 6, "AstraZeneca" = 6)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Small for gestational age" = 3, 
+              "Imputed Gestation" = 3, 
+              "Gestation at first vaccination" = 6, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Number of Doses given in exposure period" = 2)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+```{r}
+
+cohort6_infections_outcome_descriptives = get_exposure_descriptives(cohort6_infect_contemp_controls_singletons, control = "contemporary", 
+                                                                              cohort = "6", exposure = "infection") %>%
+    select(category, sub_category, inf, percentage, contemporary, percentage_contemporary) 
+
+cohort6_infections_outcome_descriptives_table <- cohort6_infections_outcome_descriptives %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Very preterm", "Preterm & term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort6_infections_outcome_descriptives_table, paste0(folder_results, "cohort6_outcome_descriptives_infection.csv"))
+
+cohort6_infections_outcome_descriptives_table <- cohort6_infections_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort6_infections_outcome_descriptives_table, caption = "Cohort 6 Outcome & Exposure Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 4)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Apgar" = 4, 
+              "Gestation at first infection" = 6,
+              "Number of infections during exposure period" = 3,
+              "Symptomatic Infection" = 3)) %>%
+  kable_styling(font_size = 10)
+
+```
+
+
+
+
+
+```{r}
+
+
+cohort1_infect_contemp_controls_plot <- cohort1_infect_contemp_controls %>%
+  mutate(study_outcome = case_when(outcome == "Stillbirth" ~ "Stillbirth",                                  
+                                   outcome == "Live birth" ~ "Live birth")) %>%
+  group_by(inf_or_uninf, study_outcome, perinatal_gestation_at_index_date) %>%
+  summarise(n = n())
+
+cohort2_infect_contemp_controls_plot <- cohort2_infect_contemp_controls %>%
+  mutate(study_outcome = case_when(neonatal_death != "Survived neonatal period" ~ "Neonatal Death")) %>%
+  group_by(inf_or_uninf, study_outcome, perinatal_gestation_at_index_date) %>%
+  summarise(n = n())
+
+cohort3_infect_contemp_controls_plot <- cohort3_infect_contemp_controls %>%
+  mutate(study_outcome = case_when(outcome == "Live birth" & gestation_at_outcome < 37 ~ "Preterm birth")) %>%
+  group_by(inf_or_uninf, study_outcome, perinatal_gestation_at_index_date) %>%
+  summarise(n = n())
+
+cohort4_infect_contemp_controls_plot <- cohort4_infect_contemp_controls %>%
+  mutate(study_outcome = case_when(outcome == "Live birth" & gestation_at_outcome < 32 ~ "Very preterm birth")) %>%
+  group_by(inf_or_uninf, study_outcome, perinatal_gestation_at_index_date) %>%
+  summarise(n = n())
+  
+cohort5_infect_contemp_controls_plot <- cohort5_infect_contemp_controls %>%
+  mutate(study_outcome = case_when(smr02_birthweight_percentile < 10 ~ "small for gestational age")) %>%
+  group_by(inf_or_uninf, study_outcome, perinatal_gestation_at_index_date) %>%
+  summarise(n = n())
+
+cohort6_infect_contemp_controls_plot <- cohort6_infect_contemp_controls %>%
+  mutate(study_outcome = case_when( apgar_score < 7 ~ "low apgar score")) %>%
+  group_by(inf_or_uninf, study_outcome, perinatal_gestation_at_index_date) %>%
+  summarise(n = n())
+
+all_outcomes <- bind_rows(cohort1_infect_contemp_controls_plot, 
+                          cohort2_infect_contemp_controls_plot, 
+                          cohort3_infect_contemp_controls_plot, 
+                          cohort4_infect_contemp_controls_plot, 
+                          cohort5_infect_contemp_controls_plot, 
+                          cohort6_infect_contemp_controls_plot) %>%
+  filter(!is.na(study_outcome))
+
+plot <- ggplot(subset(all_outcomes, inf_or_uninf == "inf"), aes(x=perinatal_gestation_at_index_date, y = n, colour = study_outcome)) + 
+  geom_line()
+
+plot
+  
+  
+
+```
+
+
+
+
+
+### Investigate missing data in vaccination cohort  
+
+We have missing Apgar scores and birth weight in this cohort. Let's look at whether there are any patterns (by time/location/number of babies born in pregnancy). 
+
+```{r}
+
+missing_data_function <- function(data, missing_data = "apgar", control = "contemporary", exposure = "vaccination") {
+  
+  if(exposure == "vaccination") {
+    
+    data <- data %>%
+      mutate(exposure = ifelse(vacc_or_unvacc == "vacc", "exposed", "unexposed")) 
+    
+  } else if(exposure == "infection") {
+        
+    data <- data %>%
+      mutate(exposure = ifelse(inf_or_uninf == "inf", "exposed", "unexposed")) 
+
+  }
+  
+  if(missing_data == "apgar") {
+    
+    data <- data %>%
+      mutate(missing_data = case_when(is.na(apgar_score) ~ "Missing", 
+                                      T ~ "Available"))
+  } else if(missing_data == "birth_weight") {
+    
+    data <- data %>%
+      mutate(missing_data = case_when(is.na(smr02_birthweight_percentile) ~ "Missing", 
+                                      T ~ "Available"))
+  }
+  
+  data <- data %>%
+    group_by(pregnancy_id_orig) %>%
+    mutate(multiple_birth = case_when(n() == 1 ~ "Singleton", 
+                                      n() > 1 ~ "Multiple")) %>%
+    ungroup() %>%
+    mutate(preterm_birth = case_when(outcome == "Live birth" & gestation_at_outcome < 32 ~ "Very preterm",
+                                     outcome == "Live birth" & between(gestation_at_outcome, 32, 36) ~ "Preterm", 
+                                     outcome == "Live birth" & gestation_at_outcome >= 37 ~ "Term")) %>%
+    mutate(preg_year = format(pregnancy_end_date, format = "%Y"))
+  
+  missing_data <- data %>% 
+    filter(missing_data == "Missing")
+  
+  available_data <- data %>%
+    filter(missing_data == "Available")
+  
+  missing_table <- bind_rows(
+    missing_data %>%
+      group_by(exposure) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = "total_births:")%>%
+      rename(missing_exposed = "exposed", 
+             missing_unexposed = "unexposed"), 
+  
+    missing_data %>%
+      group_by(exposure, preg_year) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("pregnancy_year:", preg_year))%>%
+      rename(missing_exposed = "exposed", 
+             missing_unexposed = "unexposed"), 
+  
+    missing_data %>%
+      group_by(exposure, multiple_birth) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("multiple_birth:",multiple_birth)) %>%
+      rename(missing_exposed = "exposed", 
+             missing_unexposed = "unexposed"), 
+
+    missing_data %>%
+      group_by(exposure, preterm_birth) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("preterm_birth:", preterm_birth)) %>%
+      rename(missing_exposed = "exposed", 
+             missing_unexposed = "unexposed"), 
+
+    missing_data %>%
+      group_by(exposure, hbres) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("healthboard:", hbres)) %>%
+      rename(missing_exposed = "exposed", 
+             missing_unexposed = "unexposed"), 
+  
+    missing_data %>%
+      group_by(exposure, urban_rural_8_description) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("urban_rural_8_description:",urban_rural_8_description)) %>%
+      rename(missing_exposed = "exposed", 
+             missing_unexposed = "unexposed")) %>%
+    select(rowname, missing_exposed, missing_unexposed)
+  
+  available_table <- bind_rows(
+    available_data %>%
+      group_by(exposure) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = "total_births:"), 
+  
+    available_data %>%
+      group_by(exposure, preg_year) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("pregnancy_year:", preg_year)),
+  
+    available_data %>%
+      group_by(exposure, multiple_birth) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("multiple_birth:",multiple_birth)),
+  
+    available_data %>%
+      group_by(exposure, preterm_birth) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("preterm_birth:", preterm_birth)), 
+  
+    available_data %>%
+      group_by(exposure, hbres) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("healthboard:", hbres)), 
+  
+    available_data %>%
+      group_by(exposure, urban_rural_8_description) %>%
+      tally() %>%
+      pivot_wider(names_from = exposure, values_from = n) %>%
+      mutate(rowname = paste0("urban_rural_8_description:",urban_rural_8_description))) %>%
+    select(rowname, exposed, unexposed)
+
+  table <- full_join(missing_table, available_table) %>%
+    select(rowname, exposed, missing_exposed, unexposed, missing_unexposed) %>%
+    mutate(across(everything(), as.character)) %>%
+    separate(rowname, sep = ":", into = c("category", "sub_category")) %>%
+    mutate(percentage_missing_exposed = round((as.numeric(missing_exposed)/as.numeric(exposed))*100, 1), 
+           percentage_missing_unexposed = round((as.numeric(missing_unexposed)/as.numeric(unexposed))*100, 1))
+  
+  if(exposure == "vaccination") {
+    
+    table <- table %>% rename(vacc = "exposed", missing_vacc = "missing_exposed", percentage_missing_vacc = "percentage_missing_exposed")
+    
+  } else if(exposure == "infection") {
+    
+    table <- table %>% rename(inf = "exposed", missing_inf = "missing_exposed", percentage_missing_inf = "percentage_missing_exposed")
+  }
+  
+  if(control == "historical") {
+    
+    table <- table %>% select(category, sub_category, unexposed, missing_unexposed, percentage_missing_unexposed) %>% 
+      rename(historic = "unexposed", missing_historic = "missing_unexposed", missing_historic_percentage = "percentage_missing_unexposed")
+    
+  } else if(control == "contemporary" ) {
+    
+    table <- table %>% rename(contemporary = "unexposed", missing_contemporary = "missing_unexposed", 
+                              missing_contemporary_percentage = "percentage_missing_unexposed")
+    
+  }
+  
+  return(table)
+  
+}
+
+apgar <- full_join(missing_data_function(cohort2_vacc_contemp_controls), 
+                   missing_data_function(cohort2_vacc_historic_controls, control = "historical")) %>%
+  select(category, sub_category, vacc, missing_vacc, percentage_missing_vacc,
+         historic, missing_historic, missing_historic_percentage,
+         contemporary, missing_contemporary, missing_contemporary_percentage) %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   "Singleton", "Multiple",
+                                                   "Term", "Preterm", "Very preterm",  
+                                                   "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", 
+                                                   "Ayrshire and Arran", "Borders", "Dumfries and Galloway", "Fife", "Forth Valley", "Grampian", 
+                                                   "Greater Glasgow and Clyde", "Highland", "Lanarkshire", "Lothian", "Orkney", "Shetland", 
+                                                   "Tayside", "Western Isles", "NA"))) %>%
+  arrange(colname) %>%
+  select(-c(colname, category))
+
+colname_missing <- c("", "Total_Vaccinated", "Missing_Vaccinated", "%","Total_Historic", "Missing_Historic", "%", 
+                     "Total_Contemporary", "Missing_Contemporary", "%")
+
+kableExtra::kable(apgar, caption = "Missing Apgar data", col.names = colname_missing, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 9)) %>%
+  pack_rows(
+    index = c("N births (Live births >=20 weeks)" = 1,
+              "Number of births in pregnancy" = 2, 
+              "Gestation" = 3, 
+              "Year Pregnancy Ends" = 8, 
+              "Healthboard" = 15, 
+              "Urban Rural Status" = 8)) %>%
+  kable_styling(font_size = 10)
+
+birth_weight <- full_join(missing_data_function(cohort2_vacc_contemp_controls, missing_data = "birth_weight"), 
+                          missing_data_function(cohort2_vacc_historic_controls, control = "historical", missing_data = "birth_weight")) %>%
+  select(category, sub_category, vacc, missing_vacc, percentage_missing_vacc, 
+         historic, missing_historic, missing_historic_percentage, 
+         contemporary, missing_contemporary, missing_contemporary_percentage) %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   "Singleton", "Multiple",
+                                                   "Term", "Preterm", "Very preterm",  
+                                                   "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", 
+                                                   "Ayrshire and Arran", "Borders", "Dumfries and Galloway", "Fife", "Forth Valley", "Grampian", 
+                                                   "Greater Glasgow and Clyde", "Highland", "Lanarkshire", "Lothian", "Orkney", "Shetland", 
+                                                   "Tayside", "Western Isles", "NA"))) %>%
+  arrange(colname) %>%
+  select(-c(colname, category))
+
+kableExtra::kable(birth_weight, caption = "Missing birth weight data", col.names = colname_missing, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 9)) %>%
+  pack_rows(
+    index = c("N births (Live births >=20 weeks)" = 1,
+              "Number of births in pregnancy" = 2, 
+              "Gestation" = 3, 
+              "Year Pregnancy Ends" = 8, 
+              "Healthboard" = 15, 
+              "Urban Rural Status" = 8)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+```{r}
+
+
+missing_birth_centile_vacc <- cohort2_vacc_contemp_controls %>%
+  mutate(birthweight_cat = case_when(smr02_birthweight_percentile < 10 ~ "Small for gestational age", 
+                                     smr02_birthweight_percentile >= 10 ~ "Not small for gestational age", 
+                                     T ~ "Missing")) %>%
+  mutate(missing = ifelse(birthweight_cat == "Missing", 1, 0)) %>%
+  group_by(gestation_at_outcome) %>%
+  summarise(n = n(), 
+            proportion_missing = mean(missing))
+
+missing_birth_weight_plot <- missing_birth_centile_vacc %>%
+  ggplot(aes(x = gestation_at_outcome, y = proportion_missing)) + 
+  geom_line() 
+
+missing_birth_weight_plot
+
+ggsave(paste0(folder_results, "missing_birth_weight_plot.png"), missing_birth_weight_plot)
+
+```
+
+
+### Investigate missing data in infection cohort  
+
+```{r missing_birthweight_in_infection_data}
+
+apgar_infection <- full_join(missing_data_function(cohort2_infect_contemp_controls, exposure = "infection"), 
+                             missing_data_function(cohort2_infect_historic_controls, control = "historical", exposure = "infection")) %>%
+  select(category, sub_category, inf, missing_inf, percentage_missing_inf,
+         historic, missing_historic, missing_historic_percentage,
+         contemporary, missing_contemporary, missing_contemporary_percentage) %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   "Singleton", "Multiple",
+                                                   "Term", "Preterm", "Very preterm",  
+                                                   "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", 
+                                                   "Ayrshire and Arran", "Borders", "Dumfries and Galloway", "Fife", "Forth Valley", "Grampian", 
+                                                   "Greater Glasgow and Clyde", "Highland", "Lanarkshire", "Lothian", "Orkney", "Shetland", 
+                                                   "Tayside", "Western Isles", "NA"))) %>%
+  arrange(colname) %>%
+  select(-c(colname, category))
+
+colname_missing_infection <- c("", "Total_Infected", "Missing_Infected", "%","Total_Historic", "Missing_Historic", "%", 
+                               "Total_Contemporary", "Missing_Contemporary", "%")
+
+kableExtra::kable(apgar, caption = "Missing Apgar data in infected cohort", col.names = colname_missing_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 9)) %>%
+  pack_rows(
+    index = c("N births (Live births >=20 weeks)" = 1,
+              "Number of births in pregnancy" = 2, 
+              "Gestation" = 3, 
+              "Year Pregnancy Ends" = 8, 
+              "Healthboard" = 15, 
+              "Urban Rural Status" = 8)) %>%
+  kable_styling(font_size = 10)
+
+birth_weight_infection <- full_join(missing_data_function(cohort2_infect_contemp_controls, missing_data = "birth_weight", exposure = "infection"), 
+                                    missing_data_function(cohort2_infect_historic_controls, control = "historical", missing_data = "birth_weight",
+                                                          exposure = "infection")) %>%
+  select(category, sub_category, inf, missing_inf, percentage_missing_inf,  
+         historic, missing_historic, missing_historic_percentage, 
+         contemporary, missing_contemporary, missing_contemporary_percentage) %>%
+  mutate(colname = factor(sub_category, levels = c("", 
+                                                   "Singleton", "Multiple",
+                                                   "Term", "Preterm", "Very preterm",  
+                                                   "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", 
+                                                   "Ayrshire and Arran", "Borders", "Dumfries and Galloway", "Fife", "Forth Valley", "Grampian", 
+                                                   "Greater Glasgow and Clyde", "Highland", "Lanarkshire", "Lothian", "Orkney", "Shetland", 
+                                                   "Tayside", "Western Isles", "NA"))) %>%
+  arrange(colname) %>%
+  select(-c(colname, category))
+
+kableExtra::kable(birth_weight, caption = "Missing birth weight data in infected cohort", col.names = colname_missing_infection, 
+                  booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 9)) %>%
+  pack_rows(
+    index = c("N births (Live births >=20 weeks)" = 1,
+              "Number of births in pregnancy" = 2, 
+              "Gestation" = 3, 
+              "Year Pregnancy Ends" = 8, 
+              "Healthboard" = 15, 
+              "Urban Rural Status" = 8)) %>%
+  kable_styling(font_size = 10)
+
+
+
+```
+
+
+
+```{r}
+
+cohort3_infections_outcome_descriptives = full_join(get_exposure_descriptives(cohort3_infect_contemp_controls, control = "contemporary", 
+                                                                              cohort = "3", exposure = "infection"),
+                                         get_exposure_descriptives(cohort3_infect_historic_controls, control = "historical", 
+                                                                   cohort = "3", exposure = "infection")) %>%
+    select(category, sub_category, inf, percentage, historic, percentage_historic, contemporary, percentage_contemporary) 
+
+cohort3_infections_outcome_descriptives_table <- cohort3_infections_outcome_descriptives %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Preterm", "Term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort3_infections_outcome_descriptives_table, paste0(folder_results, "cohort3_outcome_descriptives_vaccination.csv"))
+
+cohort3_infections_outcome_descriptives_table <- cohort3_infections_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort3_infections_outcome_descriptives_table, caption = "Cohort 3 Outcome & Exposure Breakdown Table", col.names = colname_infection, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Infections" = 6)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Gestation" = 2, 
+              "Imputed Gestation" = 3)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+
+```{r cohort4_outcomes_table}
+
+cohort4_outcome_descriptives = full_join(get_exposure_descriptives(cohort4_vacc_contemp_controls, control = "contemporary", cohort = "4"),
+                                         get_exposure_descriptives(cohort4_vacc_historic_controls, control = "historical", cohort = "4")) %>%
+    select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) 
+
+cohort4_pfizer_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "contemporary", cohort = "4"),
+                                                get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Pfizer"), 
+                                                                          control = "historical", cohort = "4")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_pfizer = "vacc", 
+         contemporary_pfizer = "contemporary", 
+         historic_pfizer = "historic", 
+         percentage_pfizer = "percentage", 
+         percentage_contemporary_pfizer = "percentage_contemporary", 
+         percentage_historic_pfizer = "percentage_historic") 
+
+
+cohort4_moderna_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "contemporary", cohort = "4"),
+                                                get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup == "Moderna"), 
+                                                                          control = "historical", cohort = "4")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_moderna = "vacc", 
+         contemporary_moderna = "contemporary", 
+         historic_moderna = "historic", 
+         percentage_moderna = "percentage", 
+         percentage_contemporary_moderna = "percentage_contemporary", 
+         percentage_historic_moderna = "percentage_historic") 
+
+
+cohort4_astra_outcome_descriptives = full_join(get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"), 
+                                                                          control = "contemporary", cohort = "4"),
+                                                get_exposure_descriptives(subset(cohort4_vacc_contemp_controls, vaccination_subgroup =="AstraZeneca"),
+                                                                          control = "historical", cohort = "4")) %>%
+  select(category, sub_category, vacc, percentage, historic, percentage_historic, contemporary, percentage_contemporary) %>%
+  rename(vacc_astra = "vacc", 
+         contemporary_astra = "contemporary", 
+         historic_astra = "historic", 
+         percentage_astra = "percentage", 
+         percentage_contemporary_astra = "percentage_contemporary", 
+         percentage_historic_astra = "percentage_historic") 
+
+cohort4_outcome_descriptives_table <- cohort4_outcome_descriptives %>%
+  full_join(., cohort4_pfizer_outcome_descriptives) %>%
+  full_join(., cohort4_moderna_outcome_descriptives) %>%
+  full_join(., cohort4_astra_outcome_descriptives) %>%
+  mutate(column = factor(sub_category, levels = c("", "births", 
+                                                  "Very preterm", "Preterm & term",  
+                                                  "Gestation recorded on end of pregnancy record", 
+                                                  "Gestation calculated from gestation at booking", 
+                                                  "Gestation imputed based on outcome of pregnancy",
+                                                   "Preconception","2-5 weeks","6-10 weeks","11-15 weeks", "16-19 weeks", ">=20", 
+                                                   "Dose 1", "Dose 2", "Dose 3", 
+                                                   "1", "2+"))) %>%
+  arrange(column, category) 
+
+
+write_csv(cohort4_outcome_descriptives_table, paste0(folder_results, "cohort4_outcome_descriptives_vaccination.csv"))
+
+cohort4_outcome_descriptives_table <- cohort4_outcome_descriptives_table %>%
+  as.data.frame() %>%
+  select(-c(category, column))
+
+kableExtra::kable(cohort4_outcome_descriptives_table, caption = "Cohort 4 Outcome & Exposure Breakdown Table", col.names = colname_vaccination, booktabs = TRUE) %>%
+  add_header_above(c(" " = 1, "All Vaccinations" = 6, "Pfizer" = 6, "Moderna" = 6, "AstraZeneca" = 6)) %>%
+  pack_rows(
+    index = c("N pregnancies" = 1, 
+              "N births (Live births >=20 weeks)" = 1,
+              "Gestation" = 2, 
+              "Imputed Gestation" = 3, 
+              "Gestation at first vaccination" = 6, 
+              "First vaccine dose given during exposure period" = 3, 
+              "Number of Doses given in exposure period" = 2)) %>%
+  kable_styling(font_size = 10)
+
+
+```
+
+
+
