@@ -20,9 +20,9 @@ library(survival)
 library(broom)
 
 ##### file paths #####
-folder_working_data <- ""
-folder_results <- ""
-folder_scripts <- ""
+folder_working_data <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/2_Working_Data/"
+folder_results <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/4_Results/"
+folder_scripts <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/COPS_perinatal_outcomes_paper_ll"
 
 source(paste0(folder_scripts, "/00-setup.R")) 
 
@@ -176,6 +176,25 @@ summary(model1b)
 
 table(cohort_1_model_check_contemp$UR2_categories, cohort_1_model_check_contemp$stillbirth_outcome, useNA = "ifany")
 
+# CONDITIONAL POISSON REGRESSION 
+
+model1c <- gnm(stillbirth_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort1_contemp)
+summary(model1c)
+
+exp(coef(model1c))
+
+exp(confint(model1c, "exposure", method = "wald"))
+
+
+model1d <- gnm(stillbirth_outcome ~ exposure + simd + parity_cat, 
+               eliminate = as.factor(index), family = "poisson", data = cohort1_contemp)
+summary(model1d)
+
+exp(coef(model1d))
+
+exp(confint(model1d, "exposure", method = "wald"))
+
+
 ### EXTENDED PERINATAL DEATH ###
 ## CONTEMPORARY CONTROLS ##
 ## UNADJUSTED MODEL ##
@@ -193,6 +212,26 @@ model2b <- clogit(perinatal_outcome ~ exposure + simd + ethnicity_cat + parity_c
                     UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status + strata(index), 
                   data = cohort_1_model_check_contemp) 
 summary(model2b)
+
+# CONDITIONAL POISSON REGRESSION 
+
+model2c <- gnm(perinatal_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort1_contemp)
+summary(model2c)
+
+exp(coef(model2c))
+
+exp(confint(model2c, "exposure", method = "wald"))
+
+
+model2d <- gnm(perinatal_outcome ~ exposure + simd + ethnicity_cat + parity_cat + 
+                 UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort1_contemp)
+summary(model2d)
+
+exp(coef(model2d))
+
+exp(confint(model2d, "exposure", method = "wald"))
+
 
 ##### COHORT 2: OUTCOME = NEONATAL DEATH #####
 
@@ -221,6 +260,23 @@ model3a <- clogit(nnd_outcome ~ exposure + simd + parity_cat +
                   data=cohort2_contemp)
 summary(model3a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model3b <- gnm(nnd_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort2_contemp)
+summary(model3b)
+
+exp(coef(model3b))
+
+exp(confint(model3b, "exposure", method = "wald"))
+
+
+model3c <- gnm(nnd_outcome ~ exposure +simd + parity_cat, 
+               eliminate = as.factor(index), family = "poisson", data = cohort2_contemp)
+summary(model3c)
+
+exp(coef(model3c))
+
+exp(confint(model3c, "exposure", method = "wald"))
 
 ##### COHORT 3: OUTCOME = PRETERM BIRTH #####
 cohort3_contemp <- cohort3_vacc_contemp_controls_singletons %>%
@@ -258,7 +314,26 @@ model4a <- clogit(preterm_outcome ~ exposure + simd + ethnicity_cat +
                   data=cohort3_contemp)
 summary(model4a)
 
-##### SECONDARY ANALYSIS 
+# CONDITIONAL POISSON REGRESSION 
+
+model4b <- gnm(preterm_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort3_contemp)
+summary(model4b)
+
+exp(coef(model4b))
+
+exp(confint(model4b, "exposure", method = "wald"))
+
+
+model4c <- gnm(preterm_outcome ~ exposure + simd + ethnicity_cat + 
+                 UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort3_contemp)
+summary(model4c)
+
+exp(coef(model4c))
+
+exp(confint(model4c, "exposure", method = "wald"))
+
+4##### SECONDARY ANALYSIS 
 # SPONTANEOUS PRETERM BIRTH 
 model5 <- clogit(spontaneous_preterm_outcome ~ exposure + strata(index), data=cohort3_contemp_deliveryonset)
 summary(model5)
@@ -269,6 +344,25 @@ model5a <- clogit(spontaneous_preterm_outcome ~ exposure + simd + ethnicity_cat 
                   data=cohort3_contemp_deliveryonset)
 summary(model5a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model5b <- gnm(spontaneous_preterm_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort3_contemp_deliveryonset)
+summary(model5b)
+
+exp(coef(model5b))
+
+exp(confint(model5b, "exposure", method = "wald"))
+
+
+model5c <- gnm(spontaneous_preterm_outcome ~ exposure + simd + ethnicity_cat  + 
+                 UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort3_contemp_deliveryonset)
+summary(model5c)
+
+exp(coef(model5c))
+
+exp(confint(model5c, "exposure", method = "wald"))
+
 # PROVIDER INITITATED PRETERM BIRTH 
 model6 <- clogit(provider_initiated_preterm_outcome ~ exposure + strata(index), data=cohort3_contemp_deliveryonset)
 summary(model6)
@@ -278,6 +372,26 @@ model6a <- clogit(provider_initiated_preterm_outcome ~ exposure + simd + ethnici
                     UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status + strata(index), 
                   data=cohort3_contemp_deliveryonset)
 summary(model6a)
+
+# CONDITIONAL POISSON REGRESSION 
+
+model6b <- gnm(provider_initiated_preterm_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort3_contemp_deliveryonset)
+summary(model6b)
+
+exp(coef(model6b))
+
+exp(confint(model6b, "exposure", method = "wald"))
+
+
+model6c <- gnm(provider_initiated_preterm_outcome ~ exposure + simd + ethnicity_cat  + 
+                 UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort3_contemp_deliveryonset)
+summary(model6c)
+
+exp(coef(model6c))
+
+exp(confint(model6c, "exposure", method = "wald"))
+
 
 ### PRETERM SENSITIVITY ANALYSES ###
 
@@ -352,6 +466,27 @@ model11a <- clogit(very_preterm_outcome ~ exposure + simd + ethnicity_cat  +
                    data=cohort4_contemp)
 summary(model11a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model11b <- gnm(very_preterm_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort4_contemp)
+summary(model11b)
+
+exp(coef(model11b))
+
+exp(confint(model11b, "exposure", method = "wald"))
+
+
+model11c <- gnm(very_preterm_outcome ~ exposure + simd + ethnicity_cat  + 
+                  UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort4_contemp)
+summary(model11c)
+
+exp(coef(model11c))
+
+exp(confint(model11c, "exposure", method = "wald"))
+
+
+
 ##### SECONDARY ANALYSIS 
 # SPONTANEOUS PRETERM BIRTH 
 model12 <- clogit(spontaneous_very_preterm_outcome ~ exposure + strata(index), data=cohort4_contemp_deliveryonset)
@@ -363,6 +498,25 @@ model12a <- clogit(spontaneous_very_preterm_outcome ~ exposure + simd + ethnicit
                    data=cohort4_contemp_deliveryonset)
 summary(model12a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model12b <- gnm(spontaneous_very_preterm_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort4_contemp_deliveryonset)
+summary(model12b)
+
+exp(coef(model12b))
+
+exp(confint(model12b, "exposure", method = "wald"))
+
+
+model12c <- gnm(spontaneous_very_preterm_outcome ~ exposure + simd + ethnicity_cat  + 
+                  UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+                eliminate = as.factor(index), family = "poisson", data = cohort4_contemp_deliveryonset)
+summary(model12c)
+
+exp(coef(model12c))
+
+exp(confint(model12c, "exposure", method = "wald"))
+
 # PROVIDER INITITATED PRETERM BIRTH 
 model13 <- clogit(provider_initiated_very_preterm_outcome ~ exposure + strata(index), data=cohort4_contemp_deliveryonset)
 summary(model13)
@@ -372,6 +526,24 @@ model13a <- clogit(provider_initiated_very_preterm_outcome ~ exposure + simd +
                      strata(index), 
                    data=cohort4_contemp_deliveryonset)
 summary(model13a)
+
+# CONDITIONAL POISSON REGRESSION 
+
+model13b <- gnm(provider_initiated_very_preterm_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort4_contemp_deliveryonset)
+summary(model13b)
+
+exp(coef(model13b))
+
+exp(confint(model13b, "exposure", method = "wald"))
+
+
+model13c <- gnm(provider_initiated_very_preterm_outcome ~ exposure + simd, 
+                eliminate = as.factor(index), family = "poisson", data = cohort4_contemp_deliveryonset)
+summary(model13c)
+
+exp(coef(model13c))
+
+exp(confint(model13c, "exposure", method = "wald"))
 
 ### VERY PRETERM SENSITIVITY ANALYSES ###
 # ASSUMING MISSING DELIVERY ONSET BIRTHS ARE SPONTANEOUS  
@@ -434,6 +606,25 @@ model18a <- clogit(sga_outcome ~ exposure + simd + ethnicity_cat + parity_cat +
                    data=cohort5_contemp)
 summary(model18a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model18b <- gnm(sga_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort5_contemp)
+summary(model18b)
+
+exp(coef(model18b))
+
+exp(confint(model18b, "exposure", method = "wald"))
+
+
+model18c <- gnm(sga_outcome ~ exposure + simd + ethnicity_cat + parity_cat + 
+                  UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+                eliminate = as.factor(index), family = "poisson", data = cohort5_contemp)
+summary(model18c)
+
+exp(coef(model18c))
+
+exp(confint(model18c, "exposure", method = "wald"))
+
 ##### SECONDARY ANALYSIS 
 # VERY SMALL FOR GESTATIONAL AGE
 model19 <- clogit(very_sga_outcome ~ exposure + strata(index), data=cohort5_contemp)
@@ -444,6 +635,25 @@ model19a <- clogit(very_sga_outcome ~ exposure + simd + ethnicity_cat + parity_c
                      UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status + strata(index), 
                    data=cohort5_contemp)
 summary(model19a)
+
+# CONDITIONAL POISSON REGRESSION 
+
+model19b <- gnm(very_sga_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort5_contemp)
+summary(model19b)
+
+exp(coef(model19b))
+
+exp(confint(model19b, "exposure", method = "wald"))
+
+
+model19c <- gnm(very_sga_outcome ~ exposure + simd + ethnicity_cat + parity_cat + 
+                  UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+                eliminate = as.factor(index), family = "poisson", data = cohort5_contemp)
+summary(model19c)
+
+exp(coef(model19c))
+
+exp(confint(model19c, "exposure", method = "wald"))
 
 
 ##### COHORT 6: OUTCOME = LOW APGAR SCORE #####
@@ -471,6 +681,25 @@ model20a <- clogit(apgar_outcome ~ exposure + simd + ethnicity_cat + parity_cat 
                    data=cohort6_contemp)
 summary(model20a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model20b <- gnm(apgar_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort6_contemp)
+summary(model20b)
+
+exp(coef(model20b))
+
+exp(confint(model20b, "exposure", method = "wald"))
+
+
+model20c <- gnm(apgar_outcome ~ exposure + simd + ethnicity_cat + parity_cat + 
+                  UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+                eliminate = as.factor(index), family = "poisson", data = cohort6_contemp)
+summary(model20c)
+
+exp(coef(model20c))
+
+exp(confint(model20c, "exposure", method = "wald"))
+
 ##### SECONDARY ANALYSIS 
 # VERY LOW APGAR
 model21 <- clogit(very_low_apgar_outcome ~ exposure + strata(index), data=cohort6_contemp)
@@ -482,3 +711,20 @@ model21a <- clogit(very_low_apgar_outcome ~ exposure + simd  + parity_cat +
                    data=cohort6_contemp)
 summary(model21a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model21b <- gnm(very_low_apgar_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort6_contemp)
+summary(model21b)
+
+exp(coef(model21b))
+
+exp(confint(model21b, "exposure", method = "wald"))
+
+
+model21c <- gnm(very_low_apgar_outcome ~ exposure + simd  + parity_cat, 
+                eliminate = as.factor(index), family = "poisson", data = cohort6_contemp)
+summary(model21c)
+
+exp(coef(model21c))
+
+exp(confint(model21c, "exposure", method = "wald"))

@@ -20,9 +20,9 @@ library(survival)
 library(broom)
 
 ##### file paths #####
-folder_working_data <- ""
-folder_results <- ""
-folder_scripts <- ""
+folder_working_data <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/2_Working_Data/"
+folder_results <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/4_Results/"
+folder_scripts <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/COPS_perinatal_outcomes_paper_ll"
 
 source(paste0(folder_scripts, "/00-setup.R")) 
 
@@ -121,6 +121,26 @@ model1a <- clogit(broad_hypertension_outcome ~ exposure + simd + ethnicity_cat +
                   data=cohort7_contemp)
 summary(model1a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model1b <- gnm(broad_hypertension_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort7_contemp)
+summary(model1b)
+
+exp(coef(model1b))
+
+exp(confint(model1b, "exposure", method = "wald"))
+
+
+model1c <- gnm(broad_hypertension_outcome ~ exposure + simd + ethnicity_cat + parity_cat +
+                 UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort7_contemp)
+summary(model1c)
+
+exp(coef(model1c))
+
+exp(confint(model1c, "exposure", method = "wald"))
+
+
 # and do same for glasgow
 model2 <- clogit(broad_hypertension_outcome ~ exposure + strata(index), data=cohort7_contemp_glasgow)
 summary(model2)
@@ -164,6 +184,25 @@ model4a <- clogit(vte_outcome ~ exposure + simd + parity_cat +
                   data=cohort8_contemp)
 summary(model4a)
 
+# CONDITIONAL POISSON REGRESSION 
+
+model4b <- gnm(vte_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort8_contemp)
+summary(model4b)
+
+exp(coef(model4b))
+
+exp(confint(model4b, "exposure", method = "wald"))
+
+
+model4c <- gnm(vte_outcome ~ exposure + simd + parity_cat, 
+               eliminate = as.factor(index), family = "poisson", data = cohort8_contemp)
+summary(model4c)
+
+exp(coef(model4c))
+
+
+exp(confint(model4c, "exposure", method = "wald"))
+
 ##### COHORT 9: OUTCOME = PREGNANCY RELATED BLEEDING #####
 # only using pregnancies with singletons 
 
@@ -196,6 +235,25 @@ model5a <- clogit(bleeding_outcome ~ exposure + simd + ethnicity_cat + parity_ca
                   data=cohort9_contemp)
 summary(model5a)
 
+
+# CONDITIONAL POISSON REGRESSION 
+
+model5b <- gnm(bleeding_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort9_contemp)
+summary(model5b)
+
+exp(coef(model5b))
+
+exp(confint(model5b, "exposure", method = "wald"))
+
+
+model5c <- gnm(bleeding_outcome ~ exposure + simd + ethnicity_cat + parity_cat +
+                 UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort9_contemp)
+summary(model5c)
+
+exp(coef(model5c))
+
+exp(confint(model5c, "exposure", method = "wald"))
 
 # and do the same for glasgow
 model6 <- clogit(bleeding_outcome ~ exposure + strata(index), data=cohort9_contemp_glasgow)
@@ -240,3 +298,22 @@ model8a <- clogit(icu_death_outcome ~ exposure + simd + ethnicity_cat + parity_c
                     UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status + strata(index), 
                   data=cohort10_contemp)
 summary(model8a)
+
+# CONDITIONAL POISSON REGRESSION 
+
+model8b <- gnm(icu_death_outcome ~ exposure, eliminate = as.factor(index), family = "poisson", data = cohort10_contemp)
+summary(model8b)
+
+exp(coef(model8b))
+
+exp(confint(model8b, "exposure", method = "wald"))
+
+
+model8c <- gnm(icu_death_outcome ~ exposure + simd + ethnicity_cat + parity_cat +
+                 UR2_categories + cv_clinical_vulnerability_category + diabetes_cat_2 + bmi_cat + smoking_status, 
+               eliminate = as.factor(index), family = "poisson", data = cohort10_contemp)
+summary(model8c)
+
+exp(coef(model8c))
+
+exp(confint(model8c, "exposure", method = "wald"))
