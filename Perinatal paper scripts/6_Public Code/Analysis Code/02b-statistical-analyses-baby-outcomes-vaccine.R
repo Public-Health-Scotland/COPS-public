@@ -20,9 +20,9 @@ library(survival)
 library(broom)
 
 ##### file paths #####
-folder_working_data <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/2_Working_Data/"
-folder_results <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/4_Results/"
-folder_scripts <- "/data/HPS/COPS_non_confi/COPS_VaccineSafety_Perinatal/COPS_perinatal_outcomes_paper_ll"
+folder_working_data <- ""
+folder_results <- ""
+folder_scripts <- ""
 
 source(paste0(folder_scripts, "/00-setup.R")) 
 
