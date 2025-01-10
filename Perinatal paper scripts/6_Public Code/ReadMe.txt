@@ -1,5 +1,5 @@
 Here is the code used to analyse paper: 
-Baby and maternal outcomes following SARS-CoV-2 infection and COVID-19 vaccination during pregnancy: a national population-based matched cohort study, The Lancet RH Europe 
+Baby and maternal outcomes following SARS-CoV-2 infection and COVID-19 vaccination during pregnancy: a national population-based matched cohort study, Nature Comms
 
 ---------------------------------------------------------------------------------------------------
 
